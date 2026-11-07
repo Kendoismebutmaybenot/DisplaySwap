@@ -101,8 +101,14 @@ Open the gear menu → **TV power**:
   (`https://...`, or `POST https://...`) or a command line.
 - Turn on **Turn the TV on when a profile uses it** and/or **Turn the TV off when switching away**.
 
-Turning a TV on uses Wake-on-LAN for LG and Samsung, so the TV's "turn on via Wi-Fi/LAN" (or similar)
-setting has to be enabled. The TV is only turned off if it was being used as a screen before the switch.
+Turning a TV on uses Wake-on-LAN for LG and Samsung, so the TV has to allow being woken over the network:
+
+- **LG:** turn on **TV On With Mobile** (*Turn on via Wi-Fi*, or *Turn on via LAN* if the TV is wired).
+  It is under *Settings → General → Devices → External Devices*; the exact path differs between webOS
+  versions. Without it the TV can still be turned off, but not on.
+- **Samsung:** turn on **Power On with Mobile** (*Settings → General → Network → Expert Settings*).
+
+The TV is only turned off if it was being used as a screen before the switch.
 
 **Network use:** DisplaySwap only scans your network when you click *Find & pair TV*. It never scans in
 the background or at startup. When the TV power options are on, a switch talks only to the one paired TV
