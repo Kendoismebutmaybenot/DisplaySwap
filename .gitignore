@@ -1,0 +1,18 @@
+# build output (releases are attached on GitHub instead)
+obj/
+dist/
+bin/
+*.exe
+*.dll
+*.pext
+*.zip
+*.ico
+
+# personal data DisplaySwap writes next to the exe; never commit these
+profiles.json
+profiles.json.bak
+profiles.json.tmp
+previous-setup.json
+*.log
+*.reg
+*.bak*
