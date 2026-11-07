@@ -266,6 +266,7 @@ namespace DisplaySwap
         /// <summary>HDR (advanced colour) ICC files installed in the colour store.</summary>
         public static List<string> InstalledProfiles()
         {
+            if (Demo.On) return Demo.ColourProfiles();
             var dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"spool\drivers\color");
             var list = new List<string>();
             try {
@@ -282,6 +283,7 @@ namespace DisplaySwap
         // ---------- live view ----------
         public static List<LiveDisplay> Live()
         {
+            if (Demo.On) return Demo.Displays();
             PathInfo[] paths; ModeInfo[] modes;
             Query(Native.QDC_ALL_PATHS, out paths, out modes);
             var byTarget = new Dictionary<string, LiveDisplay>();

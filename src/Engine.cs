@@ -274,6 +274,7 @@ namespace DisplaySwap
         /// <summary>Switch to a profile. Throws DisplayException with a readable message on failure.</summary>
         public static void Apply(Profile p, Action<string> status, Settings settings)
         {
+            if (Demo.On) { if (status != null) status("Screenshot mode: not switching."); return; }
             if (settings == null) settings = new Settings();
             bool refreshHdr = settings.RefreshHdr;
             bool somethingChanged = false;

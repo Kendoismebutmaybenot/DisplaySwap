@@ -100,6 +100,7 @@ namespace DisplaySwap
         /// (one entry per name; Windows keeps several stale copies).</param>
         public static List<AudioDevice> PlaybackDevices(bool includeAbsent)
         {
+            if (Demo.On) return Demo.Audio();
             var list = new List<AudioDevice>();
             var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCo();
             try {

@@ -1,8 +1,44 @@
-# DisplaySwap
+<p align="center">
+  <img src="docs/images/icon.png" width="96" alt="DisplaySwap icon">
+</p>
 
-Switch between saved display setups on Windows with one click, for example **Desk** (monitor only),
-**TV only** or **Both screens**. Each switch also sets HDR on or off, picks the right HDR colour profile
-for every screen, and changes the sound output. Windows normally makes you redo all of that by hand.
+<h1 align="center">DisplaySwap</h1>
+
+<p align="center">
+  <b>One-click switching between your monitor and TV setups on Windows, with HDR, colour profiles and sound.</b>
+</p>
+
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/Kendoismebutmaybenot/DisplaySwap?label=download&color=5B8CFF" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 | 11">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Kendoismebutmaybenot/DisplaySwap?color=3DD68C" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/main.png" width="820" alt="DisplaySwap main window">
+</p>
+
+Save setups like **Desk**, **TV only** or **Desk + TV** and switch between them with one click, a hotkey,
+the tray or automatically when a game starts. Each switch also turns HDR on or off, picks the right HDR
+colour profile for every screen and changes the sound output, which Windows normally makes you redo by hand.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/tv-only.png" alt="TV only profile"><br><sub><b>TV only:</b> HDR, calibration profile and TV speakers in one profile</sub></td>
+    <td width="50%"><img src="docs/images/desk-and-tv.png" alt="Desk and TV profile"><br><sub><b>Desk + TV:</b> each screen gets its own HDR settings</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/settings.png" alt="Settings"><br><sub><b>Settings:</b> start with Windows, safety net and TV power</sub></td>
+    <td width="50%"><img src="docs/images/sound.png" alt="Sound output"><br><sub><b>Sound output</b> per profile, including TV audio that only exists while the TV is on</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/images/tray.png" width="260" alt="Tray menu"><br>
+  <sub>Switch from the tray, with the active profile marked</sub>
+</p>
 
 ## Features
 

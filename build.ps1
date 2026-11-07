@@ -29,7 +29,7 @@ New-Item -ItemType Directory -Force "$obj\app", "$obj\ext", $dist | Out-Null
 # ---------------- app ----------------
 $wpf = "/r:$fw\WPF\PresentationFramework.dll", "/r:$fw\WPF\PresentationCore.dll", "/r:$fw\WPF\WindowsBase.dll", "/r:$fw\System.Xaml.dll"
 $refs = $wpf + "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/r:System.Runtime.Serialization.dll", "/r:System.Core.dll"
-$files = "App.cs", "Engine.cs", "DisplayCore.cs", "Audio.cs", "LgTv.cs", "TvDrivers.cs" | ForEach-Object { "$src\$_" }
+$files = "App.cs", "Engine.cs", "DisplayCore.cs", "Audio.cs", "LgTv.cs", "TvDrivers.cs", "Demo.cs" | ForEach-Object { "$src\$_" }
 $res = "/resource:$src\MainWindow.xaml,MainWindow.xaml", "/resource:$src\lgtv-pairing.json,lgtv-pairing.json"
 function Compile-App($out, $extra) {
   & $csc /nologo /target:winexe /platform:x64 /optimize+ "/out:$out" $res $refs $extra $files

@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.1.0")]
+[assembly: AssemblyFileVersion("1.0.1.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -49,7 +49,7 @@ namespace DisplaySwap
         public static int Main(string[] args)
         {
             if (args.Length > 0) AttachConsole(-1);
-            RegisterLocation();
+            if (!Demo.On) RegisterLocation();
             string apply = null; bool tray = false, remember = false;
             for (int i = 0; i < args.Length; i++)
             {
@@ -67,7 +67,7 @@ namespace DisplaySwap
             if (apply != null) return ApplyFromCommandLine(apply, remember);
 
             bool first;
-            var mutex = new Mutex(true, MutexName, out first);
+            var mutex = new Mutex(true, Demo.On ? MutexName + ".demo" : MutexName, out first);
             if (!first)
             {
                 try { EventWaitHandle.OpenExisting(ShowEventName).Set(); } catch { }
@@ -441,13 +441,13 @@ namespace DisplaySwap
             AudioDevice saved = string.IsNullOrEmpty(selected.AudioName) ? null : Audio.Find(audioDevs, selected.AudioId, selected.AudioName);
             foreach (var d in audioDevs)
             {
-                var label = Audio.BaseName(d.Name) + (d.Active ? "" : d.Present ? "  (unplugged)" : "  (when its screen is on)");
+                var label = ShortAudio(d.Name) + (d.Active ? "" : d.Present ? "  (unplugged)" : "  (when its screen is on)");
                 soundBox.Items.Add(new ComboBoxItem { Content = label, Tag = d, ToolTip = d.Name });
                 if (saved != null && d == saved) sel = soundBox.Items.Count - 1;
             }
             if (!string.IsNullOrEmpty(selected.AudioName) && saved == null)
             {
-                soundBox.Items.Add(new ComboBoxItem { Content = Audio.BaseName(selected.AudioName) + "  (not found)",
+                soundBox.Items.Add(new ComboBoxItem { Content = ShortAudio(selected.AudioName) + "  (not found)",
                     Tag = new AudioDevice { Id = selected.AudioId, Name = selected.AudioName } });
                 sel = soundBox.Items.Count - 1;
             }
@@ -690,6 +690,7 @@ namespace DisplaySwap
         public void ApplyProfile(Profile p)
         {
             if (busy) return;
+            if (Demo.On) { SetStatus("Switched to '" + p.Name + "'.", true); return; }   // screenshot mode: never switch
             busy = true;
             RenderList(); RenderDetail();
             SetStatus("Switching to '" + p.Name + "'...", null);
@@ -952,7 +953,7 @@ namespace DisplaySwap
 
         void RegisterHotkeys()
         {
-            if (hwnd == null) return;
+            if (hwnd == null || Demo.On) return;
             UnregisterHotkeys();
             int id = 0x5100;
             var failed = new List<string>();
