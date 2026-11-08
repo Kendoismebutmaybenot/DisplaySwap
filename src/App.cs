@@ -154,9 +154,7 @@ namespace DisplaySwap
         static readonly Brush HdrBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xF5, 0xB9, 0x42)));
         static readonly Brush GoodBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x8C)));
         static readonly Brush BadBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xFF, 0x6B, 0x6B)));
-        static readonly Brush CardBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)));
-        static readonly Brush CardHoverBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x26, 0x2B, 0x35)));
-        static readonly Brush LineBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x2C, 0x31, 0x3B)));
+        static Brush LineBrush { get { return Theme.Brush("2C313B"); } }
         static readonly Brush TextBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xE8, 0xEA, 0xF0)));
         static readonly FontFamily IconFont = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
         static Brush Freeze(SolidColorBrush b) { b.Freeze(); return b; }
@@ -164,8 +162,10 @@ namespace DisplaySwap
         public MainUi(Store store, bool startInTray)
         {
             this.store = store;
+            Theme.Apply(CurrentBackground());   // before the window loads, so it starts in the saved colour
             using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("MainWindow.xaml"))
-                win = (Window)XamlReader.Load(s);
+            using (var r = new StreamReader(s))
+                win = (Window)XamlReader.Parse(Theme.Prepare(r.ReadToEnd()));
             win.Icon = IconMaker.WpfIcon();
             Bind();
             BuildTray();
@@ -333,9 +333,8 @@ namespace DisplaySwap
         /// <summary>Paints the window in a colour without saving it (also used for the live preview).</summary>
         void ShowBackground(Color c)
         {
-            win.Background = Freeze(new SolidColorBrush(c));
-            if (mainPanel != null)
-                mainPanel.Background = Freeze(new SolidColorBrush(Color.FromRgb((byte)Math.Min(255, c.R + 7), (byte)Math.Min(255, c.G + 8), (byte)Math.Min(255, c.B + 9))));
+            Theme.Apply(c);   // every surface in the app and its dialogs uses these shades
+            if (profileList != null) { RenderList(); DrawPreviewAgain(); }   // the layout tiles are drawn with fixed brushes
             if (hwnd != null) { int caption = c.R | (c.G << 8) | (c.B << 16); DwmSetWindowAttribute(hwnd.Handle, 35, ref caption, 4); }
         }
 
@@ -369,9 +368,9 @@ namespace DisplaySwap
         {
             var b = new Border {
                 Width = 24, Height = 24, CornerRadius = new CornerRadius(12), Background = fill, Margin = new Thickness(0, 0, 6, 0),
-                BorderThickness = new Thickness(2), BorderBrush = selectedNow ? AccentBrush : new SolidColorBrush(Color.FromRgb(0x4A, 0x50, 0x5C)),
-                Cursor = Cursors.Hand, ToolTip = tip,
+                BorderThickness = new Thickness(2), BorderBrush = AccentBrush, Cursor = Cursors.Hand, ToolTip = tip,
             };
+            if (!selectedNow) b.SetResourceReference(Border.BorderBrushProperty, "S4A505C");
             b.MouseLeftButtonUp += (s, e) => pick();
             return b;
         }
@@ -513,11 +512,12 @@ namespace DisplaySwap
                 bool isSel = p == selected;
                 var card = new Border {
                     CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 12, 12, 12), Margin = new Thickness(0, 0, 0, 8),
-                    Background = isSel ? CardHoverBrush : CardBrush, BorderThickness = new Thickness(1.5),
+                    BorderThickness = new Thickness(1.5),
                     BorderBrush = isSel ? AccentBrush : Brushes.Transparent, Cursor = Cursors.Hand,
                 };
-                card.MouseEnter += (s, e) => { if (prof != selected) card.Background = CardHoverBrush; };
-                card.MouseLeave += (s, e) => { if (prof != selected) card.Background = CardBrush; };
+                card.SetResourceReference(Border.BackgroundProperty, isSel ? "S262B35" : "S1F232B");
+                card.MouseEnter += (s, e) => { if (prof != selected) card.SetResourceReference(Border.BackgroundProperty, "S262B35"); };
+                card.MouseLeave += (s, e) => { if (prof != selected) card.SetResourceReference(Border.BackgroundProperty, "S1F232B"); };
                 card.MouseLeftButtonUp += (s, e) => { if (prof != selected) Select(prof); };
 
                 var g = new Grid();
@@ -629,7 +629,8 @@ namespace DisplaySwap
 
         FrameworkElement DisplayRow(DisplaySetting s, List<string> iccs)
         {
-            var row = new Border { Background = CardBrush, CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 12, 14, 12), Margin = new Thickness(0, 0, 0, 8) };
+            var row = new Border { CornerRadius = new CornerRadius(10), Padding = new Thickness(16, 12, 14, 12), Margin = new Thickness(0, 0, 0, 8) };
+            row.SetResourceReference(Border.BackgroundProperty, "S1F232B");
             var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -796,7 +797,7 @@ namespace DisplaySwap
                 var r = new Border {
                     Width = Math.Max(4, d.Width * scale - gap * 2), Height = Math.Max(4, d.Height * scale - gap * 2),
                     CornerRadius = new CornerRadius(mini ? 2.5 : 8),
-                    Background = new LinearGradientBrush(Color.FromRgb(0x2A, 0x30, 0x3C), Color.FromRgb(0x22, 0x27, 0x31), 90),
+                    Background = new LinearGradientBrush(Theme.Shade("2A303C"), Theme.Shade("222731"), 90),
                     BorderBrush = main ? AccentBrush : LineBrush, BorderThickness = new Thickness(mini ? 1 : 1.5),
                 };
                 if (!mini)
@@ -1205,6 +1206,53 @@ namespace DisplaySwap
         }
     }
 
+    /// <summary>The background colour setting. Every grey surface of the dark design (window, panels, cards, inputs,
+    /// borders, popups) is the default background plus a fixed step, so a new background shifts them all with it.
+    /// Brushes live in the Application resources as "S" + the default hex (e.g. "S1F232B"), which the XAML and the
+    /// dialogs reference as DynamicResource, so a change shows at once.</summary>
+    public static class Theme
+    {
+        static readonly Color Base = Color.FromRgb(0x11, 0x13, 0x18);
+        static readonly string[] Surfaces = { "111318", "14161B", "181B21", "1F232B", "20242C", "222731", "262B35", "2A303C",
+                                              "2C313B", "2E3440", "343A46", "3A404C", "4A505C", "4A5260" };
+        static Color bg = Base;
+
+        static Color Hex(string h) { uint v = Convert.ToUInt32(h, 16); return Color.FromRgb((byte)(v >> 16), (byte)(v >> 8), (byte)v); }
+        static byte Step(byte b, int d) { return (byte)Math.Max(0, Math.Min(255, b + d)); }
+
+        /// <summary>The default-design colour hex moved onto background "on".</summary>
+        public static Color Shade(string hex, Color on)
+        {
+            var d = Hex(hex);
+            return Color.FromRgb(Step(on.R, d.R - Base.R), Step(on.G, d.G - Base.G), Step(on.B, d.B - Base.B));
+        }
+        public static Color Shade(string hex) { return Shade(hex, bg); }
+
+        public static Brush Brush(string hex)
+        {
+            var b = new SolidColorBrush(Shade(hex)); b.Freeze(); return b;
+        }
+
+        public static void Apply(Color background)
+        {
+            bg = background;
+            if (Application.Current == null) return;
+            foreach (var h in Surfaces) Application.Current.Resources["S" + h] = Brush(h);
+        }
+
+        /// <summary>Points the window XAML's surface colours at the theme brushes.</summary>
+        public static string Prepare(string xaml)
+        {
+            xaml = xaml.Replace("{StaticResource Panel}", "{DynamicResource S181B21}").Replace("{StaticResource Card}", "{DynamicResource S1F232B}")
+                       .Replace("{StaticResource CardHover}", "{DynamicResource S262B35}").Replace("{StaticResource Line}", "{DynamicResource S2C313B}");
+            return System.Text.RegularExpressions.Regex.Replace(xaml, @"(\s[A-Za-z.:]+)=""#([0-9A-Fa-f]{6})""", m => {
+                var attr = m.Groups[1].Value.Trim(); var hex = m.Groups[2].Value.ToUpperInvariant();
+                if (attr == "Color" || Array.IndexOf(Surfaces, hex) < 0) return m.Value;   // only brush attributes of surface colours
+                return m.Groups[1].Value + "=\"{DynamicResource S" + hex + "}\"";
+            });
+        }
+    }
+
     /// <summary>Hotkey text such as "Ctrl+Shift+T" to and from RegisterHotKey modifiers and virtual-key codes.</summary>
     public static class HotkeyText
     {
@@ -1285,8 +1333,8 @@ namespace DisplaySwap
                 TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Foreground = sub, FontSize = 13, Margin = new Thickness(0, 8, 0, 16) });
             var keys = new TextBlock { Text = "Waiting for keys…", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = sub,
                 HorizontalAlignment = HorizontalAlignment.Center };
-            sp.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1B)), CornerRadius = new CornerRadius(10),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3A, 0x46)), BorderThickness = new Thickness(1),
+            sp.Children.Add(new Border { Background = Theme.Brush("14161B"), CornerRadius = new CornerRadius(10),
+                BorderBrush = Theme.Brush("343A46"), BorderThickness = new Thickness(1),
                 Padding = new Thickness(16, 14, 16, 14), Child = keys });
             var note = new TextBlock { FontSize = 12.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 10, 0, 0), Foreground = sub };
             sp.Children.Add(note);
@@ -1300,7 +1348,7 @@ namespace DisplaySwap
                 if (accent != null) ok.Style = accent;
                 if (plain != null) cancel.Style = plain;
             }
-            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            w.Content = new Border { Background = Theme.Brush("1F232B"), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp, MinWidth = 420 };
 
             var bad = new SolidColorBrush(Color.FromRgb(0xFF, 0x8A, 0x80));
@@ -1362,7 +1410,7 @@ namespace DisplaySwap
             if (owner != null && owner.IsVisible) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
             else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
             var sub = new SolidColorBrush(Color.FromRgb(0x94, 0x9B, 0xA8));
-            var line = new SolidColorBrush(Color.FromRgb(0x34, 0x3A, 0x46));
+            var line = Theme.Brush("343A46");
 
             var sp = new StackPanel();
             sp.Children.Add(new TextBlock { Text = "Background colour", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White });
@@ -1395,7 +1443,7 @@ namespace DisplaySwap
             row.Children.Add(swatch);
             var hex = new TextBox { Width = 110, Padding = new Thickness(8, 5, 8, 5), FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(12, 0, 0, 0),
                 VerticalContentAlignment = VerticalAlignment.Center, MaxLength = 7,
-                Background = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1B)), Foreground = Brushes.White, CaretBrush = Brushes.White,
+                Background = Theme.Brush("14161B"), Foreground = Brushes.White, CaretBrush = Brushes.White,
                 BorderBrush = line, BorderThickness = new Thickness(1) };
             Grid.SetColumn(hex, 1); row.Children.Add(hex);
             sp.Children.Add(row);
@@ -1413,7 +1461,7 @@ namespace DisplaySwap
             }
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
             btns.Children.Add(ok); btns.Children.Add(cancel); sp.Children.Add(btns);
-            var frame = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            var frame = new Border { Background = Theme.Brush("1F232B"), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp };
             w.Content = frame;
 
@@ -1436,7 +1484,7 @@ namespace DisplaySwap
                 if (!tooLight)
                 {
                     // the dialog follows the colour too, a step lighter like the app's cards (default #111318 -> #1F232B)
-                    frame.Background = new SolidColorBrush(Color.FromRgb((byte)Math.Min(255, current.R + 14), (byte)Math.Min(255, current.G + 16), (byte)Math.Min(255, current.B + 19)));
+                    frame.Background = new SolidColorBrush(Theme.Shade("1F232B", current));
                     if (preview != null) preview(current);
                 }
             };
@@ -1534,15 +1582,15 @@ namespace DisplaySwap
             {
                 sp.Children.Add(new TextBlock { Text = labels[i], Foreground = sub, FontSize = 12, Margin = new Thickness(0, 4, 0, 4) });
                 var tb = new TextBox { Text = values[i] ?? "", Width = 460, Padding = new Thickness(8, 6, 8, 6), FontSize = 13,
-                    Background = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1B)), Foreground = Brushes.White, CaretBrush = Brushes.White,
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3A, 0x46)), BorderThickness = new Thickness(1) };
+                    Background = Theme.Brush("14161B"), Foreground = Brushes.White, CaretBrush = Brushes.White,
+                    BorderBrush = Theme.Brush("343A46"), BorderThickness = new Thickness(1) };
                 boxes.Add(tb); sp.Children.Add(tb);
             }
             var ok = new Button { Content = "Save", Padding = new Thickness(22, 8, 22, 8), Margin = new Thickness(0, 0, 10, 0), IsDefault = true };
             var cancel = new Button { Content = "Cancel", Padding = new Thickness(22, 8, 22, 8), IsCancel = true };
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
             btns.Children.Add(ok); btns.Children.Add(cancel); sp.Children.Add(btns);
-            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            w.Content = new Border { Background = Theme.Brush("1F232B"), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp };
             ok.Click += (s, e) => { result = boxes.Select(x => x.Text).ToArray(); w.Close(); };
             cancel.Click += (s, e) => w.Close();
@@ -1576,7 +1624,7 @@ namespace DisplaySwap
             var cancel = new Button { Content = "Cancel", Padding = new Thickness(22, 8, 22, 8), IsCancel = true, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 0, 0) };
             cancel.Click += (s, e) => w.Close();
             sp.Children.Add(cancel);
-            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            w.Content = new Border { Background = Theme.Brush("1F232B"), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp, MinWidth = 400 };
             w.Loaded += (s, e) => w.Activate();
             w.ShowDialog();
@@ -1602,7 +1650,7 @@ namespace DisplaySwap
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             btns.Children.Add(yesBtn); btns.Children.Add(noBtn);
             var sp = new StackPanel(); sp.Children.Add(t); sp.Children.Add(b); sp.Children.Add(btns);
-            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            w.Content = new Border { Background = Theme.Brush("1F232B"), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp, MinWidth = 400 };
             yesBtn.Click += (s, e) => { result = true; w.Close(); };
             noBtn.Click += (s, e) => w.Close();
@@ -1629,7 +1677,7 @@ namespace DisplaySwap
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             btns.Children.Add(keepBtn); btns.Children.Add(revertBtn);
             var sp = new StackPanel(); sp.Children.Add(title); sp.Children.Add(sub); sp.Children.Add(btns);
-            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            w.Content = new Border { Background = Theme.Brush("1F232B"), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp, MinWidth = 380 };
             int left = seconds;
             Action upd = () => sub.Text = "Going back to the previous setup in " + left + " s";
