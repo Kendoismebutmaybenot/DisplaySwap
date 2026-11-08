@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.3.1.0")]
+[assembly: AssemblyFileVersion("1.3.1.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.3.0";
+        public const string Version = "1.3.1";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -356,13 +356,21 @@ namespace DisplaySwap
                 Color c; TryParseColour(pr[0], out c);
                 bool on = c == cur; presetPicked |= on;
                 var hex = pr[0];
-                bgSwatches.Children.Add(Swatch(new SolidColorBrush(c), pr[1], on, () => SetBackground(hex)));
+                bgSwatches.Children.Add(Swatch(new SolidColorBrush(SwatchColour(c)), pr[1], on, () => SetBackground(hex)));
             }
             // custom colour: shows the colour when it's not a preset, otherwise a "+"
-            var custom = Swatch(presetPicked ? (Brush)Brushes.Transparent : new SolidColorBrush(cur),
+            var custom = Swatch(presetPicked ? (Brush)Brushes.Transparent : new SolidColorBrush(SwatchColour(cur)),
                 presetPicked ? "Your own colour" : "Your own colour (" + store.Settings.Background + ")", !presetPicked, PickCustomBackground);
             if (presetPicked) custom.Child = new TextBlock { Text = "+", Foreground = SubBrush, FontSize = 15, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -2, 0, 0) };
             bgSwatches.Children.Add(custom);
+        }
+
+        /// <summary>The backgrounds are all very dark (the text is light), so on screen they'd look alike: the swatch
+        /// shows the same colour 4x brighter. Black stays black.</summary>
+        static Color SwatchColour(Color c)
+        {
+            double h, s, v; ColourDialog.ToHsv(c, out h, out s, out v);
+            return ColourDialog.FromHsv(h, s, Math.Min(1, v * 4));
         }
 
         Border Swatch(Brush fill, string tip, bool selectedNow, Action pick)
