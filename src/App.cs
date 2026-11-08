@@ -196,6 +196,11 @@ namespace DisplaySwap
             var first = store.Profiles.FirstOrDefault(p => Demo.Select != null && p.Name == Demo.Select) ?? store.Profiles.FirstOrDefault();
             Select(first);
             if (!startInTray) win.Show();
+            if (Demo.Tray)   // screenshot mode: open the tray menu by itself, near the top left of the screen
+                win.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => {
+                    var wa = WF.Screen.PrimaryScreen.WorkingArea;
+                    trayIcon.ContextMenuStrip.Show(wa.Left + 60, wa.Top + 60);
+                }));
         }
 
         T F<T>(string name) where T : class { return (T)win.FindName(name); }

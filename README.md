@@ -36,7 +36,7 @@ colour profile for every screen and changes the sound output, which Windows norm
 </table>
 
 <p align="center">
-  <img src="docs/images/tray.png" width="260" alt="Tray menu"><br>
+  <img src="docs/images/tray.png" width="204" alt="Tray menu"><br>
   <sub>Switch from the tray, with the active profile marked</sub>
 </p>
 
