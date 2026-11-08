@@ -281,12 +281,12 @@ namespace DisplaySwap
             for (int i = 1; i <= 12; i++) yield return "Ctrl+Alt+F" + i;
         }
 
-        /// <summary>"Set your own...", None, the profile's own hotkey if it isn't a preset, then the presets.</summary>
+        /// <summary>None, "Set your own...", the profile's own hotkey if it isn't a preset, then the presets.</summary>
         void FillHotkeyBox(string current)
         {
             hotkeyBox.Items.Clear();
-            hotkeyBox.Items.Add(SetOwnHotkey);
             hotkeyBox.Items.Add("None");
+            hotkeyBox.Items.Add(SetOwnHotkey);
             var presets = HotkeyPresets().ToList();
             if (!string.IsNullOrEmpty(current) && !presets.Contains(current)) hotkeyBox.Items.Add(current);
             foreach (var hk in presets) hotkeyBox.Items.Add(hk);
