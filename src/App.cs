@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.3.1.0")]
-[assembly: AssemblyFileVersion("1.3.1.0")]
+[assembly: AssemblyVersion("1.3.2.0")]
+[assembly: AssemblyFileVersion("1.3.2.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.3.1";
+        public const string Version = "1.3.2";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -306,9 +306,9 @@ namespace DisplaySwap
         }
 
         // ---------------- background colour ----------------
-        static readonly string DefaultBackground = "#111318";
+        static readonly string DefaultBackground = "#000000";
         static readonly string[][] BackgroundPresets = {
-            new[] { "#111318", "Default" }, new[] { "#000000", "Black" }, new[] { "#1A1A1A", "Charcoal" }, new[] { "#0D1424", "Navy" },
+            new[] { "#000000", "Black (default)" }, new[] { "#111318", "Slate" }, new[] { "#1A1A1A", "Charcoal" }, new[] { "#0D1424", "Navy" },
             new[] { "#160F22", "Purple" }, new[] { "#0C1A14", "Green" }, new[] { "#1E0E10", "Red" },
         };
 
