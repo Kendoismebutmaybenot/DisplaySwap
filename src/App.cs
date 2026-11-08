@@ -1099,8 +1099,11 @@ namespace DisplaySwap
             if (m == null)
             {
                 m = new WF.ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true, Renderer = new DarkMenuRenderer(), Font = new SD.Font("Segoe UI", 9.5f) };
-                m.BackColor = SD.Color.FromArgb(0x20, 0x24, 0x2C); m.ForeColor = SD.Color.FromArgb(0xE8, 0xEA, 0xF0);
-                m.Opening += (s, e) => { try { live = Displays.Live(); } catch { } ReadAudio(); PopulateTray(m); };
+                m.ForeColor = SD.Color.FromArgb(0xE8, 0xEA, 0xF0);
+                m.Opening += (s, e) => {
+                    var bg = Theme.Shade("20242C"); m.BackColor = SD.Color.FromArgb(bg.R, bg.G, bg.B);   // follows the background colour
+                    try { live = Displays.Live(); } catch { } ReadAudio(); PopulateTray(m);
+                };
                 trayIcon.ContextMenuStrip = m;
             }
             PopulateTray(m);
@@ -1735,7 +1738,11 @@ namespace DisplaySwap
         }
         class DarkColors : WF.ProfessionalColorTable
         {
-            static readonly SD.Color Bg = SD.Color.FromArgb(0x20, 0x24, 0x2C), Hi = SD.Color.FromArgb(0x2E, 0x34, 0x40), Ln = SD.Color.FromArgb(0x34, 0x3A, 0x46);
+            // the same shades as the app's popups, so the menu follows the background colour setting
+            static SD.Color T(string hex) { var c = Theme.Shade(hex); return SD.Color.FromArgb(c.R, c.G, c.B); }
+            static SD.Color Bg { get { return T("20242C"); } }
+            static SD.Color Hi { get { return T("2E3440"); } }
+            static SD.Color Ln { get { return T("343A46"); } }
             public override SD.Color ToolStripDropDownBackground { get { return Bg; } }
             public override SD.Color MenuBorder { get { return Ln; } }
             public override SD.Color MenuItemBorder { get { return Hi; } }
