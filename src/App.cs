@@ -268,7 +268,8 @@ namespace DisplaySwap
                     }));
                     return;
                 }
-                SetHotkey(selected, hotkeyBox.SelectedIndex <= 0 ? "" : (string)hotkeyBox.SelectedItem);
+                var picked = hotkeyBox.SelectedItem as string;
+                SetHotkey(selected, picked == null || picked == "None" ? "" : picked);
             };
         }
 
@@ -280,17 +281,17 @@ namespace DisplaySwap
             for (int i = 1; i <= 12; i++) yield return "Ctrl+Alt+F" + i;
         }
 
-        /// <summary>None, the presets, the profile's own hotkey if it isn't a preset, then "Set your own...".</summary>
+        /// <summary>"Set your own...", None, the profile's own hotkey if it isn't a preset, then the presets.</summary>
         void FillHotkeyBox(string current)
         {
             hotkeyBox.Items.Clear();
+            hotkeyBox.Items.Add(SetOwnHotkey);
             hotkeyBox.Items.Add("None");
             var presets = HotkeyPresets().ToList();
-            foreach (var hk in presets) hotkeyBox.Items.Add(hk);
             if (!string.IsNullOrEmpty(current) && !presets.Contains(current)) hotkeyBox.Items.Add(current);
-            hotkeyBox.Items.Add(SetOwnHotkey);
+            foreach (var hk in presets) hotkeyBox.Items.Add(hk);
             hotkeyBox.SelectedItem = string.IsNullOrEmpty(current) ? "None" : current;
-            if (hotkeyBox.SelectedIndex < 0) hotkeyBox.SelectedIndex = 0;
+            if (hotkeyBox.SelectedIndex < 0) hotkeyBox.SelectedItem = "None";
         }
 
         void SetHotkey(Profile p, string hk)
