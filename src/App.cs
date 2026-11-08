@@ -326,12 +326,17 @@ namespace DisplaySwap
         /// <summary>Window and title bar get the colour; the right-hand panel a slightly lighter shade of it.</summary>
         void ApplyBackground()
         {
-            var c = CurrentBackground();
+            ShowBackground(CurrentBackground());
+            FillBgSwatches();
+        }
+
+        /// <summary>Paints the window in a colour without saving it (also used for the live preview).</summary>
+        void ShowBackground(Color c)
+        {
             win.Background = Freeze(new SolidColorBrush(c));
             if (mainPanel != null)
                 mainPanel.Background = Freeze(new SolidColorBrush(Color.FromRgb((byte)Math.Min(255, c.R + 7), (byte)Math.Min(255, c.G + 8), (byte)Math.Min(255, c.B + 9))));
             if (hwnd != null) { int caption = c.R | (c.G << 8) | (c.B << 16); DwmSetWindowAttribute(hwnd.Handle, 35, ref caption, 4); }
-            FillBgSwatches();
         }
 
         void SetBackground(string hex)
@@ -374,21 +379,11 @@ namespace DisplaySwap
         void PickCustomBackground()
         {
             settingsPopup.IsOpen = false;
-            var cur = CurrentBackground();
-            var start = store.Settings.Background ?? string.Format("#{0:X2}{1:X2}{2:X2}", cur.R, cur.G, cur.B);
-            while (true)
-            {
-                var r = InputDialog.Ask("Background colour", "Enter a colour as #RRGGBB, for example #101820. Keep it dark: the text is light.",
-                    new[] { "Colour" }, new[] { start });
-                if (r == null) return;
-                Color c;
-                if (!TryParseColour(r[0], out c)) { start = r[0]; SetStatus("That isn't a colour like #101820.", false); continue; }
-                double light = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
-                if (light > 0.35) { start = r[0]; SetStatus("That colour is too light for the light text. Pick a darker one.", false); continue; }
-                SetBackground(string.Format("#{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B));
-                SetStatus("Background colour changed.", true);
-                return;
-            }
+            var picked = ColourDialog.Ask(CurrentBackground(), win, ShowBackground);   // the window previews it while you pick
+            if (picked == null) { ApplyBackground(); return; }                          // cancelled: back to the saved colour
+            var c = picked.Value;
+            SetBackground(string.Format("#{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B));
+            SetStatus("Background colour changed.", true);
         }
 
         static readonly string SetOwnHotkey = "Set your own…";
@@ -1345,6 +1340,171 @@ namespace DisplaySwap
             w.Loaded += (s, e) => { w.Activate(); w.Focus(); };
             w.ShowDialog();
             return result;
+        }
+    }
+
+    /// <summary>Colour picker: hue/saturation wheel, brightness bar and a hex box. Returns the colour, or null if
+    /// cancelled. <paramref name="preview"/> gets every colour while picking. Colours too light for the app's light
+    /// text can't be saved.</summary>
+    public static class ColourDialog
+    {
+        const double Wheel = 220, MaxLight = 0.35;
+
+        public static Color? Ask(Color start, Window owner, Action<Color> preview)
+        {
+            Color? result = null;
+            double h, s, v; ToHsv(start, out h, out s, out v);
+            var w = new Window {
+                WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, Topmost = true,
+                SizeToContent = SizeToContent.WidthAndHeight, ShowInTaskbar = false, Title = "DisplaySwap",
+                FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
+            };
+            if (owner != null && owner.IsVisible) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            var sub = new SolidColorBrush(Color.FromRgb(0x94, 0x9B, 0xA8));
+            var line = new SolidColorBrush(Color.FromRgb(0x34, 0x3A, 0x46));
+
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock { Text = "Background colour", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White });
+            sp.Children.Add(new TextBlock { Text = "Pick a colour on the wheel, then set how bright it is. Keep it dark: the text is light.",
+                TextWrapping = TextWrapping.Wrap, MaxWidth = 300, Foreground = sub, FontSize = 13, Margin = new Thickness(0, 8, 0, 16) });
+
+            // wheel (drawn once at full brightness, at 2x for sharp edges on high-DPI screens)
+            var wheelHost = new Grid { Width = Wheel, Height = Wheel, Background = Brushes.Transparent, Cursor = Cursors.Cross, HorizontalAlignment = HorizontalAlignment.Center };
+            wheelHost.Children.Add(new Image { Source = DrawWheel((int)(Wheel * 2)), Width = Wheel, Height = Wheel });
+            var marks = new Canvas { IsHitTestVisible = false };
+            var marker = new Ellipse { Width = 16, Height = 16, Stroke = Brushes.White, StrokeThickness = 2.5 };
+            marks.Children.Add(marker); wheelHost.Children.Add(marks);
+            sp.Children.Add(wheelHost);
+
+            // brightness bar
+            sp.Children.Add(new TextBlock { Text = "Brightness", Foreground = sub, FontSize = 12, Margin = new Thickness(0, 16, 0, 6) });
+            var barGrad = new LinearGradientBrush { StartPoint = new Point(0, 0.5), EndPoint = new Point(1, 0.5) };
+            var bar = new Grid { Height = 20, Width = Wheel + 80, Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            bar.Children.Add(new Border { CornerRadius = new CornerRadius(10), Background = barGrad, BorderBrush = line, BorderThickness = new Thickness(1) });
+            var barMarks = new Canvas { IsHitTestVisible = false };
+            var thumb = new Ellipse { Width = 20, Height = 20, Stroke = Brushes.White, StrokeThickness = 2.5 };
+            barMarks.Children.Add(thumb); bar.Children.Add(barMarks);
+            sp.Children.Add(bar);
+
+            // preview + hex
+            var row = new Grid { Margin = new Thickness(0, 16, 0, 0) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var swatch = new Border { Width = 44, Height = 32, CornerRadius = new CornerRadius(7), BorderBrush = line, BorderThickness = new Thickness(1) };
+            row.Children.Add(swatch);
+            var hex = new TextBox { Width = 110, Padding = new Thickness(8, 5, 8, 5), FontSize = 13, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(12, 0, 0, 0),
+                VerticalContentAlignment = VerticalAlignment.Center, MaxLength = 7,
+                Background = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1B)), Foreground = Brushes.White, CaretBrush = Brushes.White,
+                BorderBrush = line, BorderThickness = new Thickness(1) };
+            Grid.SetColumn(hex, 1); row.Children.Add(hex);
+            sp.Children.Add(row);
+            var note = new TextBlock { FontSize = 12.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 300, Margin = new Thickness(0, 8, 0, 0),
+                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x8A, 0x80)) };
+            sp.Children.Add(note);
+
+            var ok = new Button { Content = "Save", Padding = new Thickness(22, 8, 22, 8), Margin = new Thickness(0, 0, 10, 0), IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Padding = new Thickness(22, 8, 22, 8), IsCancel = true };
+            if (owner != null)
+            {
+                var accent = owner.TryFindResource("AccentBtn") as Style; var plain = owner.TryFindResource("Btn") as Style;
+                if (accent != null) ok.Style = accent;
+                if (plain != null) cancel.Style = plain;
+            }
+            var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
+            btns.Children.Add(ok); btns.Children.Add(cancel); sp.Children.Add(btns);
+            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp };
+
+            bool fromHex = false;
+            Color current = start;
+            Action update = () => {
+                current = FromHsv(h, s, v);
+                double r = s * Wheel / 2, a = h * Math.PI / 180;
+                Canvas.SetLeft(marker, Wheel / 2 + r * Math.Cos(a) - 8); Canvas.SetTop(marker, Wheel / 2 - r * Math.Sin(a) - 8);
+                marker.Fill = new SolidColorBrush(FromHsv(h, s, 1));
+                barGrad.GradientStops.Clear();
+                barGrad.GradientStops.Add(new GradientStop(Colors.Black, 0));
+                barGrad.GradientStops.Add(new GradientStop(FromHsv(h, s, 1), 1));
+                Canvas.SetLeft(thumb, v * (bar.Width - 20)); thumb.Fill = new SolidColorBrush(current);
+                swatch.Background = new SolidColorBrush(current);
+                if (!fromHex) hex.Text = string.Format("#{0:X2}{1:X2}{2:X2}", current.R, current.G, current.B);
+                bool tooLight = Light(current) > MaxLight;
+                note.Text = tooLight ? "Too light for the light text. Turn the brightness down." : "";
+                ok.IsEnabled = !tooLight;
+                if (preview != null && !tooLight) preview(current);
+            };
+
+            Action<Point> pickWheel = p => {
+                double dx = p.X - Wheel / 2, dy = Wheel / 2 - p.Y;
+                h = (Math.Atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+                s = Math.Min(1, Math.Sqrt(dx * dx + dy * dy) / (Wheel / 2));
+                update();
+            };
+            wheelHost.MouseLeftButtonDown += (o, e) => { wheelHost.CaptureMouse(); pickWheel(e.GetPosition(wheelHost)); };
+            wheelHost.MouseMove += (o, e) => { if (wheelHost.IsMouseCaptured) pickWheel(e.GetPosition(wheelHost)); };
+            wheelHost.MouseLeftButtonUp += (o, e) => wheelHost.ReleaseMouseCapture();
+
+            Action<Point> pickBar = p => { v = Math.Max(0, Math.Min(1, (p.X - 10) / (bar.Width - 20))); update(); };
+            bar.MouseLeftButtonDown += (o, e) => { bar.CaptureMouse(); pickBar(e.GetPosition(bar)); };
+            bar.MouseMove += (o, e) => { if (bar.IsMouseCaptured) pickBar(e.GetPosition(bar)); };
+            bar.MouseLeftButtonUp += (o, e) => bar.ReleaseMouseCapture();
+
+            hex.TextChanged += (o, e) => {
+                if (!hex.IsKeyboardFocused) return;   // only while typing
+                var t = hex.Text.Trim().TrimStart('#');
+                uint val;
+                if (t.Length != 6 || !uint.TryParse(t, System.Globalization.NumberStyles.HexNumber, null, out val)) return;
+                ToHsv(Color.FromRgb((byte)(val >> 16), (byte)(val >> 8), (byte)val), out h, out s, out v);
+                fromHex = true; update(); fromHex = false;
+            };
+
+            ok.Click += (o, e) => { result = current; w.Close(); };
+            cancel.Click += (o, e) => w.Close();
+            w.Loaded += (o, e) => { update(); w.Activate(); };
+            w.ShowDialog();
+            return result;
+        }
+
+        static double Light(Color c) { return (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0; }
+
+        static BitmapSource DrawWheel(int size)
+        {
+            var px = new byte[size * size * 4];
+            double c = size / 2.0;
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    double dx = x + 0.5 - c, dy = c - (y + 0.5), d = Math.Sqrt(dx * dx + dy * dy) / c;
+                    if (d > 1 + 1.0 / c) continue;
+                    double alpha = Math.Max(0, Math.Min(1, (1 - d) * c + 0.5));   // soft edge
+                    var col = FromHsv((Math.Atan2(dy, dx) * 180 / Math.PI + 360) % 360, Math.Min(1, d), 1);
+                    int i = (y * size + x) * 4;   // premultiplied BGRA
+                    px[i] = (byte)(col.B * alpha); px[i + 1] = (byte)(col.G * alpha); px[i + 2] = (byte)(col.R * alpha); px[i + 3] = (byte)(255 * alpha);
+                }
+            var bmp = BitmapSource.Create(size, size, 96, 96, PixelFormats.Pbgra32, null, px, size * 4);
+            bmp.Freeze();
+            return bmp;
+        }
+
+        public static Color FromHsv(double h, double s, double v)
+        {
+            double c = v * s, x = c * (1 - Math.Abs((h / 60) % 2 - 1)), m = v - c, r, g, b;
+            if (h < 60) { r = c; g = x; b = 0; } else if (h < 120) { r = x; g = c; b = 0; } else if (h < 180) { r = 0; g = c; b = x; }
+            else if (h < 240) { r = 0; g = x; b = c; } else if (h < 300) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
+            return Color.FromRgb((byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255));
+        }
+
+        public static void ToHsv(Color col, out double h, out double s, out double v)
+        {
+            double r = col.R / 255.0, g = col.G / 255.0, b = col.B / 255.0;
+            double max = Math.Max(r, Math.Max(g, b)), min = Math.Min(r, Math.Min(g, b)), d = max - min;
+            v = max; s = max == 0 ? 0 : d / max;
+            if (d == 0) h = 0;
+            else if (max == r) h = 60 * (((g - b) / d) % 6);
+            else if (max == g) h = 60 * ((b - r) / d + 2);
+            else h = 60 * ((r - g) / d + 4);
+            if (h < 0) h += 360;
         }
     }
 
