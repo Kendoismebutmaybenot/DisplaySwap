@@ -223,10 +223,14 @@ namespace DisplaySwap
         }
 
         // ---------- colour profiles ----------
-        // Profiles are read/written per MONITOR device key (MONITOR\<model>\{4d36e96e-...}\<nnnn>) with the WCS
-        // functions. The newer ColorProfile*(adapter, sourceId) functions resolve the source to a monitor
-        // themselves and, right after a layout change where two monitors have used the same source, they
-        // can write to the wrong monitor (e.g. the TV's profile lands on the desk monitor and vice versa).
+        // Two views of "the HDR profile of a screen":
+        //  * per MONITOR device key (MONITOR\<model>\{4d36e96e-...}\<nnnn>, WCS functions): the monitor's own
+        //    list. Works for screens that are off, and is what Windows uses once the monitor is first on its output.
+        //  * per OUTPUT (ColorProfile*(adapter, sourceId)): what Windows Settings and the desktop actually use for
+        //    an active screen. When several monitors have used the same output (\\.\DISPLAY1 lists the TV, the
+        //    desk monitor and the side monitor), Windows resolves the output to the FIRST monitor listed there,
+        //    which may not be the one that is on.
+        // So DisplaySwap writes both, and for active screens reads the per-output value.
         [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)] static extern int CM_Locate_DevNodeW(out uint devInst, string id, uint flags);
         [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)] static extern int CM_Get_DevNode_Registry_PropertyW(uint devInst, uint prop, out uint type, StringBuilder buf, ref uint len, uint flags);
         [DllImport("mscms.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool WcsGetDefaultColorProfileSize(uint scope, string dev, uint type, uint sub, uint id, out uint size);
@@ -234,6 +238,9 @@ namespace DisplaySwap
         [DllImport("mscms.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool WcsSetDefaultColorProfile(uint scope, string dev, uint type, uint sub, uint id, string name);
         [DllImport("mscms.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool WcsGetUsePerUserProfiles(string dev, uint deviceClass, out bool perUser);
         const uint CLASS_MONITOR = 0x6D6E7472; // 'mntr'
+        [DllImport("mscms.dll", CharSet = CharSet.Unicode)] static extern int ColorProfileGetDisplayDefault(uint scope, LUID adapter, uint sourceId, uint type, uint sub, out IntPtr name);
+        [DllImport("mscms.dll", CharSet = CharSet.Unicode)] static extern int ColorProfileAddDisplayAssociation(uint scope, string profile, LUID adapter, uint sourceId, bool setAsDefault, bool advancedColor);
+        [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr p);
 
         static readonly Dictionary<string, string> keyCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -282,6 +289,28 @@ namespace DisplaySwap
             if (key == null) throw new DisplayException("Could not find the monitor's device entry for " + devicePath);
             if (!WcsSetDefaultColorProfile(Scope(key), key, Native.CPT_ICC, Native.CPST_EXTENDED_DISPLAY_COLOR_MODE, 0, profile))
                 throw new DisplayException("Setting colour profile '" + profile + "' failed: " + new Win32Exception(Marshal.GetLastWin32Error()).Message);
+        }
+
+        /// <summary>HDR profile Windows uses for an active screen right now (looked up through its output).</summary>
+        public static string GetOutputHdrProfile(LUID adapter, uint sourceId)
+        {
+            foreach (uint scope in new uint[] { 1, 0 })   // current user, then system
+            {
+                IntPtr p;
+                if (ColorProfileGetDisplayDefault(scope, adapter, sourceId, Native.CPT_ICC, Native.CPST_EXTENDED_DISPLAY_COLOR_MODE, out p) != 0 || p == IntPtr.Zero) continue;
+                try { return Marshal.PtrToStringUni(p); } finally { LocalFree(p); }
+            }
+            return null;
+        }
+
+        /// <summary>Make an HDR profile the default for a screen: in the monitor's own list, and (when the screen is
+        /// on) for the output it is on, which is what Windows actually uses.</summary>
+        public static void SetHdrProfile(LiveDisplay d, string profile)
+        {
+            SetHdrProfile(d.DevicePath, profile);
+            if (!d.Active) return;
+            int hr = ColorProfileAddDisplayAssociation(Scope(MonitorKey(d.DevicePath) ?? ""), profile, d.Adapter, d.SourceId, true, true);
+            if (hr != 0) throw new DisplayException("Setting colour profile '" + profile + "' for " + d.Name + "'s output failed: " + new Win32Exception(hr).Message);
         }
 
         /// <summary>HDR (advanced colour) ICC files installed in the colour store.</summary>
@@ -343,7 +372,7 @@ namespace DisplaySwap
             foreach (var d in order)
             {
                 try { GetHdr(d.Adapter, d.TargetId, out d.HdrSupported, out d.HdrOn); } catch { }
-                try { d.HdrProfile = GetHdrProfile(d.DevicePath); } catch { }
+                try { d.HdrProfile = (d.Active ? GetOutputHdrProfile(d.Adapter, d.SourceId) : null) ?? GetHdrProfile(d.DevicePath); } catch { }
             }
             return order;
         }

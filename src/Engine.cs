@@ -380,7 +380,7 @@ namespace DisplaySwap
                     if (Same(d.HdrProfile, s.Profile)) continue;
                     allGood = false;
                     log(s.Name + ": HDR colour profile -> " + s.Profile + (pass > 0 ? " (again)" : ""));
-                    Displays.SetHdrProfile(d.DevicePath, s.Profile);
+                    Displays.SetHdrProfile(d, s.Profile);
                     somethingChanged = true;
                 }
                 if (allGood) break;
