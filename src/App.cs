@@ -1413,8 +1413,9 @@ namespace DisplaySwap
             }
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
             btns.Children.Add(ok); btns.Children.Add(cancel); sp.Children.Add(btns);
-            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+            var frame = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp };
+            w.Content = frame;
 
             bool fromHex = false;
             Color current = start;
@@ -1432,7 +1433,12 @@ namespace DisplaySwap
                 bool tooLight = Light(current) > MaxLight;
                 note.Text = tooLight ? "Too light for the light text. Turn the brightness down." : "";
                 ok.IsEnabled = !tooLight;
-                if (preview != null && !tooLight) preview(current);
+                if (!tooLight)
+                {
+                    // the dialog follows the colour too, a step lighter like the app's cards (default #111318 -> #1F232B)
+                    frame.Background = new SolidColorBrush(Color.FromRgb((byte)Math.Min(255, current.R + 14), (byte)Math.Min(255, current.G + 16), (byte)Math.Min(255, current.B + 19)));
+                    if (preview != null) preview(current);
+                }
             };
 
             Action<Point> pickWheel = p => {
