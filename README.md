@@ -61,6 +61,7 @@ colour profile for every screen and changes the sound output, which Windows norm
   before it could switch back, DisplaySwap offers to restore your previous setup.
 - **Optional safety net.** Ask "Keep this setup?" after switching and go back automatically after
   15 seconds if you don't confirm (useful if a screen stays black).
+- **Background colour.** Pick one of the dark presets or your own colour in Settings.
 - **Portable.** No installer. Settings live next to `DisplaySwap.exe`.
 
 ## Download and install

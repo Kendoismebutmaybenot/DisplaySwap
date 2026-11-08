@@ -15,6 +15,7 @@ namespace DisplaySwap
         public bool ConfirmAfterSwitch = false;
         public bool RefreshHdr = false;   // turn HDR off/on after a switch so Windows reloads the calibration
         public int ConfirmSeconds = 15;
+        public string Background;        // window background "#RRGGBB"; empty = the default dark grey
 
         // LG TV power (optional). Filled in by "Find & pair TV".
         public bool TvTurnOn = false;    // wake the TV before switching to a profile that uses it

@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.2.1.0")]
-[assembly: AssemblyFileVersion("1.2.1.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.2.1";
+        public const string Version = "1.3.0";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -136,6 +136,7 @@ namespace DisplaySwap
         CheckBox optStartup, optTray, optConfirm, optRefresh, optTvOn, optTvOff;
         TextBlock tvStatus, tvPairText; Button tvPairBtn, tvCustomBtn; bool pairing;
         DispatcherTimer strandedTimer; string strandedPromptedFor;
+        Border mainPanel; WrapPanel bgSwatches;
 
         WF.NotifyIcon trayIcon;
         Profile selected;
@@ -174,6 +175,7 @@ namespace DisplaySwap
             hwnd = HwndSource.FromHwnd(helper.Handle);
             hwnd.AddHook(WndProc);
             DarkTitleBar(helper.Handle);
+            ApplyBackground();   // title bar colour needs the window handle
 
             displayChangeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
             displayChangeTimer.Tick += (s, e) => { displayChangeTimer.Stop(); if (!busy) RefreshLive(); };
@@ -235,6 +237,8 @@ namespace DisplaySwap
             optTray.Click += (s, e) => { if (!suppressEvents) { store.Settings.CloseToTray = optTray.IsChecked == true; Save(); } };
             optRefresh.Click += (s, e) => { if (!suppressEvents) { store.Settings.RefreshHdr = optRefresh.IsChecked == true; Save(); } };
             optConfirm.Click += (s, e) => { if (!suppressEvents) { store.Settings.ConfirmAfterSwitch = optConfirm.IsChecked == true; Save(); } };
+            mainPanel = F<Border>("MainPanel"); bgSwatches = F<WrapPanel>("BgSwatches");
+            FillBgSwatches(); ApplyBackground();
 
             nameBox.KeyDown += (s, e) => {
                 if (e.Key == Key.Enter) { CommitName(); Keyboard.ClearFocus(); win.Focus(); }
@@ -245,16 +249,26 @@ namespace DisplaySwap
             FillHotkeyBox("");
             // WPF scrolls the selected hotkey to the top of the list, hiding None and "Set your own..." above it.
             // Open at the top instead whenever the selected one is still visible from there.
-            hotkeyBox.DropDownOpened += (s, e) => Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => {
-                var item = hotkeyBox.ItemContainerGenerator.ContainerFromIndex(Math.Max(0, hotkeyBox.SelectedIndex)) as FrameworkElement;
-                DependencyObject up = item;
-                while (up != null && !(up is ScrollViewer)) up = VisualTreeHelper.GetParent(up);
-                var sv = up as ScrollViewer;
-                if (item == null || sv == null) return;
-                // the list scrolls by item (viewport counted in items), or by pixels if item scrolling is off
-                double fromTop = sv.CanContentScroll ? hotkeyBox.SelectedIndex + 1 : item.ActualHeight * (hotkeyBox.SelectedIndex + 1);
-                if (fromTop <= sv.ViewportHeight) sv.ScrollToTop();
-            }));
+            // The list stays invisible until it has been scrolled, so the jump never shows.
+            hotkeyBox.DropDownOpened += (s, e) => {
+                var popup = hotkeyBox.Template.FindName("PART_Popup", hotkeyBox) as System.Windows.Controls.Primitives.Popup;
+                var list = popup == null ? null : popup.Child as UIElement;
+                if (list != null) list.Opacity = 0;
+                Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => {
+                    try
+                    {
+                        var item = hotkeyBox.ItemContainerGenerator.ContainerFromIndex(Math.Max(0, hotkeyBox.SelectedIndex)) as FrameworkElement;
+                        DependencyObject up = item;
+                        while (up != null && !(up is ScrollViewer)) up = VisualTreeHelper.GetParent(up);
+                        var sv = up as ScrollViewer;
+                        if (item == null || sv == null) return;
+                        // the list scrolls by item (viewport counted in items), or by pixels if item scrolling is off
+                        double fromTop = sv.CanContentScroll ? hotkeyBox.SelectedIndex + 1 : item.ActualHeight * (hotkeyBox.SelectedIndex + 1);
+                        if (fromTop <= sv.ViewportHeight) { sv.ScrollToTop(); sv.UpdateLayout(); }
+                    }
+                    finally { if (list != null) list.Opacity = 1; }
+                }));
+            };
             soundBox = F<ComboBox>("SoundBox"); soundSub = F<TextBlock>("SoundSub");
             soundBox.SelectionChanged += (s, e) => {
                 if (suppressEvents || selected == null) return;
@@ -283,6 +297,98 @@ namespace DisplaySwap
                 var picked = hotkeyBox.SelectedItem as string;
                 SetHotkey(selected, picked == null || picked == "None" ? "" : picked);
             };
+        }
+
+        // ---------------- background colour ----------------
+        static readonly string DefaultBackground = "#111318";
+        static readonly string[][] BackgroundPresets = {
+            new[] { "#111318", "Default" }, new[] { "#000000", "Black" }, new[] { "#1A1A1A", "Charcoal" }, new[] { "#0D1424", "Navy" },
+            new[] { "#160F22", "Purple" }, new[] { "#0C1A14", "Green" }, new[] { "#1E0E10", "Red" },
+        };
+
+        static bool TryParseColour(string hex, out Color c)
+        {
+            c = Colors.Black;
+            if (string.IsNullOrEmpty(hex)) return false;
+            hex = hex.Trim().TrimStart('#');
+            uint v;
+            if (hex.Length != 6 || !uint.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out v)) return false;
+            c = Color.FromRgb((byte)(v >> 16), (byte)(v >> 8), (byte)v);
+            return true;
+        }
+
+        Color CurrentBackground()
+        {
+            Color c;
+            return TryParseColour(store.Settings.Background, out c) ? c : (Color)ColorConverter.ConvertFromString(DefaultBackground);
+        }
+
+        /// <summary>Window and title bar get the colour; the right-hand panel a slightly lighter shade of it.</summary>
+        void ApplyBackground()
+        {
+            var c = CurrentBackground();
+            win.Background = Freeze(new SolidColorBrush(c));
+            if (mainPanel != null)
+                mainPanel.Background = Freeze(new SolidColorBrush(Color.FromRgb((byte)Math.Min(255, c.R + 7), (byte)Math.Min(255, c.G + 8), (byte)Math.Min(255, c.B + 9))));
+            if (hwnd != null) { int caption = c.R | (c.G << 8) | (c.B << 16); DwmSetWindowAttribute(hwnd.Handle, 35, ref caption, 4); }
+            FillBgSwatches();
+        }
+
+        void SetBackground(string hex)
+        {
+            store.Settings.Background = hex.Equals(DefaultBackground, StringComparison.OrdinalIgnoreCase) ? null : hex.ToUpperInvariant();
+            Save(); ApplyBackground();
+        }
+
+        void FillBgSwatches()
+        {
+            if (bgSwatches == null) return;
+            bgSwatches.Children.Clear();
+            var cur = CurrentBackground();
+            bool presetPicked = false;
+            foreach (var pr in BackgroundPresets)
+            {
+                Color c; TryParseColour(pr[0], out c);
+                bool on = c == cur; presetPicked |= on;
+                var hex = pr[0];
+                bgSwatches.Children.Add(Swatch(new SolidColorBrush(c), pr[1], on, () => SetBackground(hex)));
+            }
+            // custom colour: shows the colour when it's not a preset, otherwise a "+"
+            var custom = Swatch(presetPicked ? (Brush)Brushes.Transparent : new SolidColorBrush(cur),
+                presetPicked ? "Your own colour" : "Your own colour (" + store.Settings.Background + ")", !presetPicked, PickCustomBackground);
+            if (presetPicked) custom.Child = new TextBlock { Text = "+", Foreground = SubBrush, FontSize = 15, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, -2, 0, 0) };
+            bgSwatches.Children.Add(custom);
+        }
+
+        Border Swatch(Brush fill, string tip, bool selectedNow, Action pick)
+        {
+            var b = new Border {
+                Width = 24, Height = 24, CornerRadius = new CornerRadius(12), Background = fill, Margin = new Thickness(0, 0, 6, 0),
+                BorderThickness = new Thickness(2), BorderBrush = selectedNow ? AccentBrush : new SolidColorBrush(Color.FromRgb(0x4A, 0x50, 0x5C)),
+                Cursor = Cursors.Hand, ToolTip = tip,
+            };
+            b.MouseLeftButtonUp += (s, e) => pick();
+            return b;
+        }
+
+        void PickCustomBackground()
+        {
+            settingsPopup.IsOpen = false;
+            var cur = CurrentBackground();
+            var start = store.Settings.Background ?? string.Format("#{0:X2}{1:X2}{2:X2}", cur.R, cur.G, cur.B);
+            while (true)
+            {
+                var r = InputDialog.Ask("Background colour", "Enter a colour as #RRGGBB, for example #101820. Keep it dark: the text is light.",
+                    new[] { "Colour" }, new[] { start });
+                if (r == null) return;
+                Color c;
+                if (!TryParseColour(r[0], out c)) { start = r[0]; SetStatus("That isn't a colour like #101820.", false); continue; }
+                double light = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
+                if (light > 0.35) { start = r[0]; SetStatus("That colour is too light for the light text. Pick a darker one.", false); continue; }
+                SetBackground(string.Format("#{0:X2}{1:X2}{2:X2}", c.R, c.G, c.B));
+                SetStatus("Background colour changed.", true);
+                return;
+            }
         }
 
         static readonly string SetOwnHotkey = "Set your own…";
