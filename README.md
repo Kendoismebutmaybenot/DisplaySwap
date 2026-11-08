@@ -50,7 +50,7 @@ colour profile for every screen and changes the sound output, which Windows norm
   set on the right monitor even when screens take turns on the same graphics card output.
 - **Sound output per profile.** For example the TV's speakers for *TV only* and your headphones at the
   desk. TV audio is found by name, because Windows re-creates HDMI audio devices with new IDs.
-- **Tray menu and hotkeys.** Switch from the tray, or with Ctrl+Alt+1–9 / F1–F12.
+- **Tray menu and hotkeys.** Switch from the tray, or with a hotkey: pick a preset (Ctrl+Alt+1–9, Ctrl+Alt+F1–F12) or press your own combo.
 - **Desktop shortcuts.** One click makes a shortcut that switches to a profile (handy in Steam).
 - **Playnite extension.** Right-click a game → *Monitor profile* → pick a profile. DisplaySwap switches
   when the game starts and switches back when it closes.

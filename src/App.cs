@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -242,9 +242,7 @@ namespace DisplaySwap
             };
             nameBox.LostKeyboardFocus += (s, e) => CommitName();
 
-            hotkeyBox.Items.Add("None");
-            for (int i = 1; i <= 9; i++) hotkeyBox.Items.Add("Ctrl+Alt+" + i);
-            for (int i = 1; i <= 12; i++) hotkeyBox.Items.Add("Ctrl+Alt+F" + i);
+            FillHotkeyBox("");
             soundBox = F<ComboBox>("SoundBox"); soundSub = F<TextBlock>("SoundSub");
             soundBox.SelectionChanged += (s, e) => {
                 if (suppressEvents || selected == null) return;
@@ -256,11 +254,50 @@ namespace DisplaySwap
             };
             hotkeyBox.SelectionChanged += (s, e) => {
                 if (suppressEvents || selected == null) return;
-                var hk = hotkeyBox.SelectedIndex <= 0 ? "" : (string)hotkeyBox.SelectedItem;
-                if (hk != "") foreach (var o in store.Profiles) if (o != selected && o.Hotkey == hk) o.Hotkey = "";
-                selected.Hotkey = hk;
-                Save(); RegisterHotkeys(); RenderList();
+                if ((string)hotkeyBox.SelectedItem == SetOwnHotkey)
+                {
+                    // Open the dialog once the dropdown has closed. Our own hotkeys are off meanwhile, so pressing
+                    // one of them in the dialog doesn't switch screens.
+                    var prof = selected;
+                    Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => {
+                        UnregisterHotkeys();
+                        var own = HotkeyDialog.Ask(prof.Name, win);
+                        if (own != null) SetHotkey(prof, own);
+                        else RegisterHotkeys();
+                        if (selected == prof) { suppressEvents = true; FillHotkeyBox(prof.Hotkey); suppressEvents = false; }
+                    }));
+                    return;
+                }
+                SetHotkey(selected, hotkeyBox.SelectedIndex <= 0 ? "" : (string)hotkeyBox.SelectedItem);
             };
+        }
+
+        static readonly string SetOwnHotkey = "Set your own…";
+
+        static IEnumerable<string> HotkeyPresets()
+        {
+            for (int i = 1; i <= 9; i++) yield return "Ctrl+Alt+" + i;
+            for (int i = 1; i <= 12; i++) yield return "Ctrl+Alt+F" + i;
+        }
+
+        /// <summary>None, the presets, the profile's own hotkey if it isn't a preset, then "Set your own...".</summary>
+        void FillHotkeyBox(string current)
+        {
+            hotkeyBox.Items.Clear();
+            hotkeyBox.Items.Add("None");
+            var presets = HotkeyPresets().ToList();
+            foreach (var hk in presets) hotkeyBox.Items.Add(hk);
+            if (!string.IsNullOrEmpty(current) && !presets.Contains(current)) hotkeyBox.Items.Add(current);
+            hotkeyBox.Items.Add(SetOwnHotkey);
+            hotkeyBox.SelectedItem = string.IsNullOrEmpty(current) ? "None" : current;
+            if (hotkeyBox.SelectedIndex < 0) hotkeyBox.SelectedIndex = 0;
+        }
+
+        void SetHotkey(Profile p, string hk)
+        {
+            if (hk != "") foreach (var o in store.Profiles) if (o != p && o.Hotkey == hk) o.Hotkey = "";
+            p.Hotkey = hk;
+            Save(); RegisterHotkeys(); RenderList();
         }
 
         // ---------------- state ----------------
@@ -419,8 +456,7 @@ namespace DisplaySwap
 
             suppressEvents = true;
             if (!nameBox.IsKeyboardFocused) nameBox.Text = selected.Name;
-            hotkeyBox.SelectedItem = string.IsNullOrEmpty(selected.Hotkey) ? "None" : selected.Hotkey;
-            if (hotkeyBox.SelectedIndex < 0) hotkeyBox.SelectedIndex = 0;
+            FillHotkeyBox(selected.Hotkey);
             suppressEvents = false;
 
             int n = selected.Displays == null ? 0 : selected.Displays.Count;
@@ -1029,16 +1065,7 @@ namespace DisplaySwap
 
         static bool ParseHotkey(string hk, out uint mods, out uint vk)
         {
-            mods = 0; vk = 0;
-            if (string.IsNullOrEmpty(hk)) return false;
-            foreach (var part in hk.Split('+'))
-            {
-                var t = part.Trim().ToUpperInvariant();
-                if (t == "CTRL") mods |= 0x2; else if (t == "ALT") mods |= 0x1; else if (t == "SHIFT") mods |= 0x4; else if (t == "WIN") mods |= 0x8;
-                else if (t.Length == 1 && char.IsLetterOrDigit(t[0])) vk = t[0];
-                else if (t.StartsWith("F")) { int n; if (int.TryParse(t.Substring(1), out n) && n >= 1 && n <= 24) vk = (uint)(0x70 + n - 1); }
-            }
-            return vk != 0 && mods != 0;
+            return HotkeyText.Parse(hk, out mods, out vk);
         }
 
         IntPtr WndProc(IntPtr h, int msg, IntPtr wp, IntPtr lp, ref bool handled)
@@ -1064,7 +1091,144 @@ namespace DisplaySwap
         }
     }
 
-    /// <summary>"Keep this setup?" countdown, shown after switching when enabled.</summary>
+    /// <summary>Hotkey text such as "Ctrl+Shift+T" to and from RegisterHotKey modifiers and virtual-key codes.</summary>
+    public static class HotkeyText
+    {
+        public const uint Alt = 0x1, Ctrl = 0x2, Shift = 0x4, Win = 0x8;
+
+        static readonly Dictionary<string, uint> Named = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase) {
+            { "Space", 0x20 }, { "PageUp", 0x21 }, { "PageDown", 0x22 }, { "End", 0x23 }, { "Home", 0x24 },
+            { "Left", 0x25 }, { "Up", 0x26 }, { "Right", 0x27 }, { "Down", 0x28 }, { "Insert", 0x2D }, { "Delete", 0x2E },
+            { "Pause", 0x13 },
+        };
+
+        /// <summary>Name of a key that can be used in a hotkey, or null.</summary>
+        public static string KeyName(uint vk)
+        {
+            if (vk >= 0x41 && vk <= 0x5A) return ((char)vk).ToString();          // A-Z
+            if (vk >= 0x30 && vk <= 0x39) return ((char)vk).ToString();          // 0-9
+            if (vk >= 0x70 && vk <= 0x87) return "F" + (vk - 0x70 + 1);          // F1-F24
+            if (vk >= 0x60 && vk <= 0x69) return "Num" + (vk - 0x60);            // numpad 0-9
+            foreach (var kv in Named) if (kv.Value == vk) return kv.Key;
+            return null;
+        }
+
+        public static string Format(uint mods, uint vk)
+        {
+            var name = KeyName(vk);
+            if (name == null) return null;
+            var parts = new List<string>();
+            if ((mods & Ctrl) != 0) parts.Add("Ctrl");
+            if ((mods & Alt) != 0) parts.Add("Alt");
+            if ((mods & Shift) != 0) parts.Add("Shift");
+            if ((mods & Win) != 0) parts.Add("Win");
+            parts.Add(name);
+            return string.Join("+", parts);
+        }
+
+        public static bool Parse(string hk, out uint mods, out uint vk)
+        {
+            mods = 0; vk = 0;
+            if (string.IsNullOrEmpty(hk)) return false;
+            foreach (var part in hk.Split('+'))
+            {
+                var t = part.Trim();
+                uint named;
+                if (t.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)) mods |= Ctrl;
+                else if (t.Equals("Alt", StringComparison.OrdinalIgnoreCase)) mods |= Alt;
+                else if (t.Equals("Shift", StringComparison.OrdinalIgnoreCase)) mods |= Shift;
+                else if (t.Equals("Win", StringComparison.OrdinalIgnoreCase)) mods |= Win;
+                else if (t.Length == 1 && char.IsLetterOrDigit(t[0])) vk = char.ToUpperInvariant(t[0]);
+                else if (Named.TryGetValue(t, out named)) vk = named;
+                else if (t.StartsWith("Num", StringComparison.OrdinalIgnoreCase)) { int n; if (int.TryParse(t.Substring(3), out n) && n >= 0 && n <= 9) vk = (uint)(0x60 + n); }
+                else if (t.StartsWith("F", StringComparison.OrdinalIgnoreCase)) { int n; if (int.TryParse(t.Substring(1), out n) && n >= 1 && n <= 24) vk = (uint)(0x70 + n - 1); }
+            }
+            return vk != 0 && mods != 0;
+        }
+    }
+
+    /// <summary>"Press the keys you want" dialog. Returns the hotkey text, or null if cancelled.</summary>
+    public static class HotkeyDialog
+    {
+        [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
+        [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        public static string Ask(string profileName, Window owner)
+        {
+            string result = null, pending = null;
+            var w = new Window {
+                WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, Topmost = true,
+                SizeToContent = SizeToContent.WidthAndHeight, ShowInTaskbar = false, Title = "DisplaySwap",
+                FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"),
+            };
+            if (owner != null && owner.IsVisible) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; }
+            else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            var sub = new SolidColorBrush(Color.FromRgb(0x94, 0x9B, 0xA8));
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock { Text = "Hotkey for '" + profileName + "'", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White });
+            sp.Children.Add(new TextBlock {
+                Text = "Press the keys you want, for example Ctrl+Shift+T. Use Ctrl, Alt or Win with it, so normal keys in games keep working. Esc cancels.",
+                TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Foreground = sub, FontSize = 13, Margin = new Thickness(0, 8, 0, 16) });
+            var keys = new TextBlock { Text = "Waiting for keys…", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = sub,
+                HorizontalAlignment = HorizontalAlignment.Center };
+            sp.Children.Add(new Border { Background = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1B)), CornerRadius = new CornerRadius(10),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3A, 0x46)), BorderThickness = new Thickness(1),
+                Padding = new Thickness(16, 14, 16, 14), Child = keys });
+            var note = new TextBlock { FontSize = 12.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Margin = new Thickness(0, 10, 0, 0), Foreground = sub };
+            sp.Children.Add(note);
+            var ok = new Button { Content = "Save", Padding = new Thickness(22, 8, 22, 8), Margin = new Thickness(0, 0, 10, 0), IsEnabled = false, Focusable = false };
+            var cancel = new Button { Content = "Cancel", Padding = new Thickness(22, 8, 22, 8), Focusable = false };
+            var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
+            btns.Children.Add(ok); btns.Children.Add(cancel); sp.Children.Add(btns);
+            if (owner != null)   // the main window's dark button styles
+            {
+                var accent = owner.TryFindResource("AccentBtn") as Style; var plain = owner.TryFindResource("Btn") as Style;
+                if (accent != null) ok.Style = accent;
+                if (plain != null) cancel.Style = plain;
+            }
+            w.Content = new Border { Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x23, 0x2B)), CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 22),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x5B, 0x8C, 0xFF)), BorderThickness = new Thickness(1.5), Child = sp, MinWidth = 420 };
+
+            var bad = new SolidColorBrush(Color.FromRgb(0xFF, 0x8A, 0x80));
+            var good = new SolidColorBrush(Color.FromRgb(0x3D, 0xD6, 0x8C));
+            w.PreviewKeyDown += (s, e) => {
+                e.Handled = true;
+                var key = e.Key == Key.System ? e.SystemKey : e.Key;
+                bool ctrl = Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
+                bool alt = Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt);
+                bool shift = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
+                bool winKey = Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin);
+                bool anyMod = ctrl || alt || shift || winKey;
+                if (key == Key.Escape && !anyMod) { w.Close(); return; }
+                if (key == Key.Enter && !anyMod) { if (pending != null) { result = pending; w.Close(); } return; }
+                uint mods = (ctrl ? HotkeyText.Ctrl : 0) | (alt ? HotkeyText.Alt : 0) | (shift ? HotkeyText.Shift : 0) | (winKey ? HotkeyText.Win : 0);
+                if (key == Key.LeftCtrl || key == Key.RightCtrl || key == Key.LeftAlt || key == Key.RightAlt ||
+                    key == Key.LeftShift || key == Key.RightShift || key == Key.LWin || key == Key.RWin)
+                {
+                    if (pending == null) { keys.Text = HotkeyText.Format(mods, 0x41).Replace("+A", "+…"); keys.Foreground = sub; }
+                    return;
+                }
+                uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
+                var text = HotkeyText.Format(mods, vk);
+                pending = null; ok.IsEnabled = false;
+                if (text == null) { keys.Text = "Waiting for keys…"; keys.Foreground = sub; note.Foreground = bad; note.Text = "That key can't be used. Try a letter, number or F key."; return; }
+                keys.Text = text;
+                if (!ctrl && !alt && !winKey) { keys.Foreground = bad; note.Foreground = bad; note.Text = "Add Ctrl, Alt or Win, so the key still works normally everywhere else."; return; }
+                // Check that Windows lets us have it (Windows itself and other apps reserve some combos).
+                var h = new WindowInteropHelper(w).Handle;
+                if (!RegisterHotKey(h, 0x5FFF, mods | 0x4000, vk)) { keys.Foreground = bad; note.Foreground = bad; note.Text = text + " is already used by Windows or another app. Try a different one."; return; }
+                UnregisterHotKey(h, 0x5FFF);
+                keys.Foreground = Brushes.White; note.Foreground = good; note.Text = "Press Enter or Save to use it.";
+                pending = text; ok.IsEnabled = true;
+            };
+            ok.Click += (s, e) => { result = pending; w.Close(); };
+            cancel.Click += (s, e) => w.Close();
+            w.Loaded += (s, e) => { w.Activate(); w.Focus(); };
+            w.ShowDialog();
+            return result;
+        }
+    }
+
     /// <summary>Dark dialog with labelled text boxes. Returns the values, or null if cancelled.</summary>
     public static class InputDialog
     {

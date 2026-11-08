@@ -313,7 +313,7 @@
                 <Grid Margin="0,16,0,2">
                   <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Hotkey" Foreground="{StaticResource Sub}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                    <ComboBox x:Name="HotkeyBox" Width="150"/>
+                    <ComboBox x:Name="HotkeyBox" Width="190"/>
                   </StackPanel>
                   <Button x:Name="UpdateBtn" Style="{StaticResource Btn}" HorizontalAlignment="Right"
                           ToolTip="Replace this profile's screens, resolutions and positions with what Windows shows right now">
