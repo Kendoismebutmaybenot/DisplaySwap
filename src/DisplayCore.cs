@@ -240,6 +240,8 @@ namespace DisplaySwap
         const uint CLASS_MONITOR = 0x6D6E7472; // 'mntr'
         [DllImport("mscms.dll", CharSet = CharSet.Unicode)] static extern int ColorProfileGetDisplayDefault(uint scope, LUID adapter, uint sourceId, uint type, uint sub, out IntPtr name);
         [DllImport("mscms.dll", CharSet = CharSet.Unicode)] static extern int ColorProfileAddDisplayAssociation(uint scope, string profile, LUID adapter, uint sourceId, bool setAsDefault, bool advancedColor);
+        [DllImport("mscms.dll", CharSet = CharSet.Unicode)] static extern int ColorProfileSetDisplayDefaultAssociation(uint scope, string profile, uint type, uint sub, LUID adapter, uint sourceId);
+        [DllImport("mscms.dll", CharSet = CharSet.Unicode)] static extern int ColorProfileRemoveDisplayAssociation(uint scope, string profile, LUID adapter, uint sourceId, bool advancedColor);
         [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr p);
 
         static readonly Dictionary<string, string> keyCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -309,8 +311,18 @@ namespace DisplaySwap
         {
             SetHdrProfile(d.DevicePath, profile);
             if (!d.Active) return;
-            int hr = ColorProfileAddDisplayAssociation(Scope(MonitorKey(d.DevicePath) ?? ""), profile, d.Adapter, d.SourceId, true, true);
+            uint scope = Scope(MonitorKey(d.DevicePath) ?? "");
+            int hr = ColorProfileAddDisplayAssociation(scope, profile, d.Adapter, d.SourceId, true, true);
             if (hr != 0) throw new DisplayException("Setting colour profile '" + profile + "' for " + d.Name + "'s output failed: " + new Win32Exception(hr).Message);
+            // "Add ... as default" changes nothing when the profile is already in the output's list (e.g. the TV's
+            // profile is still there from an earlier switch while another monitor's profile became the default since),
+            // so make it the default explicitly. If Windows refuses, remove it and add it again: the newest is the default.
+            if (ColorProfileSetDisplayDefaultAssociation(scope, profile, Native.CPT_ICC, Native.CPST_EXTENDED_DISPLAY_COLOR_MODE, d.Adapter, d.SourceId) != 0)
+            {
+                ColorProfileRemoveDisplayAssociation(scope, profile, d.Adapter, d.SourceId, true);
+                hr = ColorProfileAddDisplayAssociation(scope, profile, d.Adapter, d.SourceId, true, true);
+                if (hr != 0) throw new DisplayException("Setting colour profile '" + profile + "' for " + d.Name + "'s output failed: " + new Win32Exception(hr).Message);
+            }
         }
 
         /// <summary>HDR (advanced colour) ICC files installed in the colour store.</summary>
