@@ -9,6 +9,8 @@ namespace DisplaySwap
     public static class Demo
     {
         public static readonly bool On = Environment.GetEnvironmentVariable("DISPLAYSWAP_DEMO") == "1";
+        /// <summary>DISPLAYSWAP_DEMO_SELECT=&lt;profile name&gt;: start with that profile selected (for screenshots).</summary>
+        public static readonly string Select = On ? Environment.GetEnvironmentVariable("DISPLAYSWAP_DEMO_SELECT") : null;
 
         public const string DeskPath = @"\\?\DISPLAY#DEM0001#1&demo&0&UID1#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
         public const string SidePath = @"\\?\DISPLAY#DEM0002#1&demo&0&UID2#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";

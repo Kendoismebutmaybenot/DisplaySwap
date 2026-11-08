@@ -193,7 +193,8 @@ namespace DisplaySwap
 
             RegisterHotkeys();
             RefreshLive();
-            if (store.Profiles.Count > 0) Select(store.Profiles[0]); else Select(null);
+            var first = store.Profiles.FirstOrDefault(p => Demo.Select != null && p.Name == Demo.Select) ?? store.Profiles.FirstOrDefault();
+            Select(first);
             if (!startInTray) win.Show();
         }
 
