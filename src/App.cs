@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyFileVersion("1.2.1.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.2.0";
+        public const string Version = "1.2.1";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -243,6 +243,18 @@ namespace DisplaySwap
             nameBox.LostKeyboardFocus += (s, e) => CommitName();
 
             FillHotkeyBox("");
+            // WPF scrolls the selected hotkey to the top of the list, hiding None and "Set your own..." above it.
+            // Open at the top instead whenever the selected one is still visible from there.
+            hotkeyBox.DropDownOpened += (s, e) => Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => {
+                var item = hotkeyBox.ItemContainerGenerator.ContainerFromIndex(Math.Max(0, hotkeyBox.SelectedIndex)) as FrameworkElement;
+                DependencyObject up = item;
+                while (up != null && !(up is ScrollViewer)) up = VisualTreeHelper.GetParent(up);
+                var sv = up as ScrollViewer;
+                if (item == null || sv == null) return;
+                // the list scrolls by item (viewport counted in items), or by pixels if item scrolling is off
+                double fromTop = sv.CanContentScroll ? hotkeyBox.SelectedIndex + 1 : item.ActualHeight * (hotkeyBox.SelectedIndex + 1);
+                if (fromTop <= sv.ViewportHeight) sv.ScrollToTop();
+            }));
             soundBox = F<ComboBox>("SoundBox"); soundSub = F<TextBlock>("SoundSub");
             soundBox.SelectionChanged += (s, e) => {
                 if (suppressEvents || selected == null) return;
