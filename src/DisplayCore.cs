@@ -70,6 +70,7 @@ namespace DisplaySwap
         public string GdiName;       // \\.\DISPLAY1
         public int Width, Height, X, Y;
         public double Hz;
+        public int Rate;             // refresh rate in whole Hz as Windows lists it (59.94 -> 59); 0 = unknown
         public bool HdrSupported, HdrOn;
         public string HdrProfile;    // current default advanced-colour ICC (file name)
         public bool Primary { get { return Active && X == 0 && Y == 0; } }
@@ -91,6 +92,26 @@ namespace DisplaySwap
         [DllImport("user32.dll")] public static extern int DisplayConfigSetDeviceInfo(IntPtr packet);
 
         public const uint CPT_ICC = 0, CPST_EXTENDED_DISPLAY_COLOR_MODE = 8;
+
+        // GDI display modes, used for refresh rates (whole Hz, as Windows' own settings list them).
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+            public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX, dmPositionY, dmDisplayOrientation, dmDisplayFixedOutput;
+            public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+            public int dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;
+        }
+        public const int ENUM_CURRENT_SETTINGS = -1;
+        public const int DM_PELSWIDTH = 0x80000, DM_PELSHEIGHT = 0x100000, DM_DISPLAYFREQUENCY = 0x400000;
+        public const uint CDS_UPDATEREGISTRY = 0x1, CDS_TEST = 0x2;
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool EnumDisplaySettings(string device, int mode, ref DEVMODE dm);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int ChangeDisplaySettingsEx(string device, ref DEVMODE dm, IntPtr hwnd, uint flags, IntPtr param);
     }
 
     public static class Displays
@@ -309,6 +330,7 @@ namespace DisplaySwap
                 if (active)
                 {
                     d.GdiName = SourceGdiName(p.source.adapterId, p.source.id);
+                    try { d.Rate = CurrentRate(d.GdiName); } catch { }
                     if (p.source.modeInfoIdx < modes.Length) {
                         var m = modes[p.source.modeInfoIdx];
                         d.Width = (int)m.srcWidth; d.Height = (int)m.srcHeight; d.X = m.srcX; d.Y = m.srcY;
@@ -350,6 +372,42 @@ namespace DisplaySwap
         {
             if (map.ContainsKey(l.Value)) return;
             try { map[l.Value] = AdapterName(l); } catch { map[l.Value] = ""; }
+        }
+
+        // ---------- refresh rate ----------
+        static Native.DEVMODE NewDevMode() { var dm = new Native.DEVMODE(); dm.dmSize = (short)Marshal.SizeOf(typeof(Native.DEVMODE)); return dm; }
+
+        /// <summary>Refresh rate the screen runs at now, in whole Hz as Windows lists it (59.94 shows as 59). 0 = unknown.</summary>
+        public static int CurrentRate(string gdiName)
+        {
+            if (string.IsNullOrEmpty(gdiName)) return 0;
+            var dm = NewDevMode();
+            return Native.EnumDisplaySettings(gdiName, Native.ENUM_CURRENT_SETTINGS, ref dm) && dm.dmDisplayFrequency > 1 ? dm.dmDisplayFrequency : 0;
+        }
+
+        /// <summary>Refresh rates the (active) screen offers at a resolution, lowest first.</summary>
+        public static List<int> RefreshRates(string gdiName, int width, int height)
+        {
+            if (Demo.On) return Demo.Rates(width);
+            var rates = new SortedSet<int>();
+            if (string.IsNullOrEmpty(gdiName)) return rates.ToList();
+            var dm = NewDevMode();
+            for (int i = 0; Native.EnumDisplaySettings(gdiName, i, ref dm); i++)
+                if (dm.dmPelsWidth == width && dm.dmPelsHeight == height && dm.dmDisplayFrequency > 1) rates.Add(dm.dmDisplayFrequency);
+            return rates.ToList();
+        }
+
+        /// <summary>Change only the refresh rate of an active screen (keeps resolution and position).
+        /// testOnly asks Windows whether it would work without changing anything.</summary>
+        public static void SetRefreshRate(string gdiName, int hz, bool testOnly)
+        {
+            var dm = NewDevMode();
+            if (!Native.EnumDisplaySettings(gdiName, Native.ENUM_CURRENT_SETTINGS, ref dm)) throw new DisplayException("Can't read the current mode of " + gdiName);
+            dm.dmDisplayFrequency = hz;
+            dm.dmFields = Native.DM_PELSWIDTH | Native.DM_PELSHEIGHT | Native.DM_DISPLAYFREQUENCY;
+            int r = Native.ChangeDisplaySettingsEx(gdiName, ref dm, IntPtr.Zero, testOnly ? Native.CDS_TEST : Native.CDS_UPDATEREGISTRY, IntPtr.Zero);
+            if (r != 0 && r != 1) // 1 = DISP_CHANGE_RESTART (still applied for refresh rates on modern Windows)
+                throw new DisplayException(hz + " Hz was rejected (code " + r + ")");
         }
 
         /// <summary>Switch the desktop to a saved layout. Returns a human summary.</summary>
@@ -521,7 +579,9 @@ namespace DisplaySwap
         public string DevicePath;
         public string Name;
         public int Width, Height, X, Y;
-        public double Hz;
+        public double Hz;         // exact rate stored in the layout
+        public int RefreshHz;     // rate to run at, whole Hz as Windows lists it; 0 = whatever the layout has
+        public List<int> Rates;   // rates the screen offered at this resolution when last seen (for the picker)
         public bool HdrSupported;
         public string Hdr;        // "on", "off", "keep"
         public string Profile;    // ICC file name, or null/"" = leave alone

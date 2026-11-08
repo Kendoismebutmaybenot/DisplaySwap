@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.0.1.0")]
-[assembly: AssemblyFileVersion("1.0.1.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.0.1";
+        public const string Version = "1.1.0";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -321,7 +321,15 @@ namespace DisplaySwap
                 foreach (var s in p.Displays)
                 {
                     var d = live.FirstOrDefault(x => x.Active && Switcher.Same(x.DevicePath, s.DevicePath));
-                    if (d == null || d.HdrSupported == s.HdrSupported) continue;
+                    if (d == null) continue;
+                    // Remember which refresh rates the screen offers at this profile's resolution (for the picker
+                    // while the screen is off).
+                    if (d.Width == s.Width && d.Height == s.Height)
+                    {
+                        var rates = Switcher.SafeRates(d);
+                        if (rates.Count > 0 && (s.Rates == null || !rates.SequenceEqual(s.Rates))) { s.Rates = rates; changed = true; }
+                    }
+                    if (d.HdrSupported == s.HdrSupported) continue;
                     s.HdrSupported = d.HdrSupported;
                     if (!d.HdrSupported) { s.Hdr = "keep"; s.Profile = null; }
                     else if (s.Hdr == "keep" || string.IsNullOrEmpty(s.Hdr)) s.Hdr = d.HdrOn ? "on" : "off";
@@ -476,7 +484,18 @@ namespace DisplaySwap
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            // Refresh rate, HDR and HDR profile sit to the right of the name, or below it when the window is narrow.
+            var ctl = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };   // wraps when narrow
+            Grid.SetColumn(ctl, 2); g.Children.Add(ctl);
+            row.SizeChanged += (o, e) => {
+                // Same width rule for every row (HDR and non-HDR alike) so they all line up: icon + ~200 px
+                // name + refresh + HDR + profile pickers.
+                bool narrow = row.ActualWidth < 800;
+                Grid.SetRow(ctl, narrow ? 1 : 0); Grid.SetColumn(ctl, narrow ? 1 : 2); Grid.SetColumnSpan(ctl, narrow ? 2 : 1);
+                ctl.Margin = new Thickness(narrow ? -12 : 0, narrow ? 10 : 0, 0, 0);
+            };
 
             var icon = new TextBlock { Text = "", FontFamily = IconFont, FontSize = 22, Foreground = SubBrush,
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
@@ -484,18 +503,20 @@ namespace DisplaySwap
 
             var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             info.Children.Add(new TextBlock { Text = s.Name, FontSize = 14, FontWeight = FontWeights.SemiBold });
-            var bits = new List<string> { s.Width + " × " + s.Height, Math.Round(s.Hz) + " Hz" };
+            var bits = new List<string> { s.Width + " × " + s.Height };
             if (s.X == 0 && s.Y == 0 && selected.Displays.Count > 1) bits.Add("main screen");
             var ld = live.FirstOrDefault(d => Switcher.Same(d.DevicePath, s.DevicePath));
             if (ld == null) bits.Add("not connected");
             info.Children.Add(new TextBlock { Text = string.Join("  ·  ", bits), Foreground = ld == null ? BadBrush : SubBrush, FontSize = 12, Margin = new Thickness(0, 2, 0, 0) });
             Grid.SetColumn(info, 1); g.Children.Add(info);
 
+            ctl.Children.Add(RefreshPicker(s, ld));
+
             // Screens without HDR get no HDR controls at all.
             if (!s.HdrSupported)
             {
-                var none = new TextBlock { Text = "No HDR", Foreground = SubBrush, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 4, 0) };
-                Grid.SetColumn(none, 3); g.Children.Add(none);
+                var none = new TextBlock { Text = "No HDR", Foreground = SubBrush, FontSize = 12, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(14, 0, 4, 7) };
+                ctl.Children.Add(none);
                 row.Child = g;
                 return row;
             }
@@ -515,7 +536,7 @@ namespace DisplaySwap
             }
             else { hdr.Items.Add("Not supported"); hdr.SelectedIndex = 0; hdr.IsEnabled = false; }
             hdrPanel.Children.Add(hdr);
-            Grid.SetColumn(hdrPanel, 2); g.Children.Add(hdrPanel);
+            ctl.Children.Add(hdrPanel);
 
             // HDR colour profile
             var profPanel = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
@@ -538,10 +559,48 @@ namespace DisplaySwap
                 Save(); RenderList();
             };
             profPanel.Children.Add(prof);
-            Grid.SetColumn(profPanel, 3); g.Children.Add(profPanel);
+            ctl.Children.Add(profPanel);
 
             row.Child = g;
             return row;
+        }
+
+        /// <summary>Refresh-rate dropdown. Lists what the screen offers at the profile's resolution (read live
+        /// when the screen is on, otherwise the list remembered from the last time it was on).</summary>
+        FrameworkElement RefreshPicker(DisplaySetting s, LiveDisplay ld)
+        {
+            var panel = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
+            panel.Children.Add(new TextBlock { Text = "Refresh rate", Foreground = SubBrush, FontSize = 11, Margin = new Thickness(2, 0, 0, 4) });
+            var box = new ComboBox { Width = 96 };
+            var rates = new List<int>();
+            if (ld != null && ld.Active && ld.Width == s.Width && ld.Height == s.Height) rates = Switcher.SafeRates(ld);
+            if (rates.Count == 0 && s.Rates != null) rates = new List<int>(s.Rates);
+            int current = ShownRate(s, ld);
+            if (current > 0 && !rates.Contains(current) && rates.Count > 0 && s.RefreshHz <= 0)
+            {
+                // Older profile: snap its exact rate to one Windows lists (it writes 59.94 as 59).
+                int fl = (int)Math.Floor(s.Hz);
+                current = rates.Contains(fl) ? fl : rates.OrderBy(r => Math.Abs(r - s.Hz)).First();
+            }
+            if (current > 0 && !rates.Contains(current)) { rates.Add(current); rates.Sort(); }
+            foreach (var r in rates) box.Items.Add(new ComboBoxItem { Content = r + " Hz", Tag = r });
+            box.SelectedIndex = rates.IndexOf(current);
+            if (rates.Count == 0) { box.Items.Add("Unknown"); box.SelectedIndex = 0; box.IsEnabled = false; }
+            box.ToolTip = "Refresh rate this screen is set to when switching";
+            box.SelectionChanged += (o, e) => {
+                if (box.SelectedItem is ComboBoxItem) { s.RefreshHz = (int)((ComboBoxItem)box.SelectedItem).Tag; Save(); RenderList(); DrawPreviewAgain(); }
+            };
+            panel.Children.Add(box);
+            return panel;
+        }
+
+        /// <summary>The refresh rate a profile asks for, in whole Hz as Windows lists them.</summary>
+        static int ShownRate(DisplaySetting s, LiveDisplay ld)
+        {
+            if (s.RefreshHz > 0) return s.RefreshHz;
+            // Older profiles only have the exact rate from the layout: use Windows' figure if the screen runs it now.
+            if (ld != null && ld.Active && ld.Rate > 0 && Math.Abs(ld.Hz - s.Hz) < 0.6) return ld.Rate;
+            return (int)Math.Round(s.Hz);
         }
 
         void DrawPreviewAgain() { preview.Children.Clear(); if (selected != null && preview.ActualWidth > 0) DrawLayout(preview, selected, false); }
@@ -594,7 +653,7 @@ namespace DisplaySwap
                 {
                     var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(6) };
                     sp.Children.Add(new TextBlock { Text = d.Name, FontWeight = FontWeights.SemiBold, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-                    sp.Children.Add(new TextBlock { Text = d.Width + "×" + d.Height + " · " + Math.Round(d.Hz) + " Hz", Foreground = SubBrush, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 6) });
+                    sp.Children.Add(new TextBlock { Text = d.Width + "×" + d.Height + " · " + ShownRate(d, live.FirstOrDefault(x => Switcher.Same(x.DevicePath, d.DevicePath))) + " Hz", Foreground = SubBrush, FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 6) });
                     var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
                     if (hdr) row.Children.Add(Chip("HDR", HdrBrush));
                     if (main && p.Displays.Count > 1) row.Children.Add(Chip("Main", AccentBrush));
@@ -699,11 +758,12 @@ namespace DisplaySwap
             bool confirm = store.Settings.ConfirmAfterSwitch && previous != null;
             var settings = store.Settings;
             var th = new Thread(() => {
-                string err = null;
-                try { Switcher.Apply(p, m => Dispatcher.BeginInvoke(new Action(() => SetStatus(m, null))), settings); }
+                string err = null; bool layoutUpdated = false;
+                try { layoutUpdated = Switcher.Apply(p, m => Dispatcher.BeginInvoke(new Action(() => SetStatus(m, null))), settings); }
                 catch (Exception e) { err = e.Message; Log.Write("[" + p.Name + "] FAILED: " + e.Message); }
                 Dispatcher.BeginInvoke(new Action(() => {
                     busy = false;
+                    if (layoutUpdated && store.Profiles.Contains(p)) Save();   // new refresh rate folded into the layout
                     RefreshLive();
                     if (err != null) { SetStatus("Switch to '" + p.Name + "' had a problem: " + err, false); Balloon("Switch had a problem", err, true); return; }
                     SetStatus("Switched to '" + p.Name + "'.", true);

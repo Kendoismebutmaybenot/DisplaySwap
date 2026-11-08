@@ -228,11 +228,23 @@ namespace DisplaySwap
                 p.Displays.Add(new DisplaySetting {
                     DevicePath = d.DevicePath, Name = d.Name,
                     Width = d.Width, Height = d.Height, X = d.X, Y = d.Y, Hz = Math.Round(d.Hz, 2),
+                    RefreshHz = d.Rate, Rates = SafeRates(d),
                     HdrSupported = d.HdrSupported,
                     Hdr = d.HdrSupported ? (d.HdrOn ? "on" : "off") : "keep",
                     Profile = !d.HdrSupported ? null : (d.HdrProfile ?? (prev != null ? prev.Profile : null)),
                 });
             }
+        }
+
+        public static List<int> SafeRates(LiveDisplay d)
+        {
+            try { return Displays.RefreshRates(d.GdiName, d.Width, d.Height); } catch { return new List<int>(); }
+        }
+
+        /// <summary>True when an active screen runs at the refresh rate the profile asks for (or the profile doesn't say).</summary>
+        public static bool RateMatches(DisplaySetting s, LiveDisplay d)
+        {
+            return s.RefreshHz <= 0 || d.Rate <= 0 || d.Rate == s.RefreshHz;
         }
 
         public static bool SameAudio(AudioDevice d, Profile p)
@@ -251,7 +263,8 @@ namespace DisplaySwap
             {
                 var d = act.FirstOrDefault(x => Same(x.DevicePath, s.DevicePath));
                 if (d == null || d.Width != s.Width || d.Height != s.Height || d.X != s.X || d.Y != s.Y) return false;
-                if (s.Hz > 0 && Math.Abs(d.Hz - s.Hz) > 0.6) return false;
+                // A picked refresh rate is set by its own step (no need to re-apply the whole layout for it).
+                if (s.RefreshHz <= 0 && s.Hz > 0 && Math.Abs(d.Hz - s.Hz) > 0.6) return false;
             }
             return true;
         }
@@ -264,6 +277,7 @@ namespace DisplaySwap
             foreach (var s in p.Displays)
             {
                 var d = live.First(x => x.Active && Same(x.DevicePath, s.DevicePath));
+                if (!RateMatches(s, d)) return false;
                 if (d.HdrSupported && s.Hdr == "on" && !d.HdrOn) return false;
                 if (d.HdrSupported && s.Hdr == "off" && d.HdrOn) return false;
                 if (d.HdrSupported && !string.IsNullOrEmpty(s.Profile) && !Same(s.Profile, d.HdrProfile)) return false;
@@ -271,10 +285,13 @@ namespace DisplaySwap
             return true;
         }
 
-        /// <summary>Switch to a profile. Throws DisplayException with a readable message on failure.</summary>
-        public static void Apply(Profile p, Action<string> status, Settings settings)
+        /// <summary>Switch to a profile. Throws DisplayException with a readable message on failure.
+        /// Returns true when the profile's saved layout was updated (a new refresh rate got folded in), so
+        /// the caller should save it.</summary>
+        public static bool Apply(Profile p, Action<string> status, Settings settings)
         {
-            if (Demo.On) { if (status != null) status("Screenshot mode: not switching."); return; }
+            if (Demo.On) { if (status != null) status("Screenshot mode: not switching."); return false; }
+            bool layoutUpdated = false;
             if (settings == null) settings = new Settings();
             bool refreshHdr = settings.RefreshHdr;
             bool somethingChanged = false;
@@ -304,6 +321,33 @@ namespace DisplaySwap
                 var want = p.Displays.Select(d => d.DevicePath).ToList();
                 if (!Displays.WaitForActive(want, 10000)) log("Warning: Windows has not finished switching after 10 s.");
                 Thread.Sleep(800); // let the driver/DWM settle before touching HDR
+            }
+
+            // Refresh rate picked in DisplaySwap (the saved layout may still hold the rate it was saved with).
+            bool rateChanged = false;
+            live = Displays.Live();
+            foreach (var s in p.Displays)
+            {
+                var d = live.FirstOrDefault(x => x.Active && Same(x.DevicePath, s.DevicePath));
+                if (d == null || RateMatches(s, d)) continue;
+                log(s.Name + ": refresh rate " + d.Rate + " -> " + s.RefreshHz + " Hz");
+                try { Displays.SetRefreshRate(d.GdiName, s.RefreshHz, false); rateChanged = true; }
+                catch (Exception e) { log(s.Name + ": " + e.Message); }   // reported by the final check
+            }
+            if (rateChanged)
+            {
+                somethingChanged = true;
+                Thread.Sleep(1000);
+                // Fold the new rate into the saved layout so the next switch sets it in one go.
+                live = Displays.Live();
+                if (LayoutMatches(p, live) && p.Displays.All(s => RateMatches(s, live.First(x => x.Active && Same(x.DevicePath, s.DevicePath)))))
+                {
+                    try {
+                        p.Layout = Displays.Capture();
+                        foreach (var s in p.Displays) s.Hz = Math.Round(live.First(x => x.Active && Same(x.DevicePath, s.DevicePath)).Hz, 2);
+                        layoutUpdated = true;
+                    } catch { }
+                }
             }
 
             // HDR on/off
@@ -380,6 +424,7 @@ namespace DisplaySwap
             {
                 var d = live.FirstOrDefault(x => x.Active && Same(x.DevicePath, s.DevicePath));
                 if (d == null) { problems.Add(s.Name + " is not active"); continue; }
+                if (!RateMatches(s, d)) problems.Add(s.Name + " runs at " + d.Rate + " Hz, not " + s.RefreshHz + " Hz");
                 if (d.HdrSupported && s.Hdr == "on" && !d.HdrOn) problems.Add(s.Name + " HDR did not turn on");
                 if (d.HdrSupported && s.Hdr == "off" && d.HdrOn) problems.Add(s.Name + " HDR did not turn off");
                 if (d.HdrSupported && !string.IsNullOrEmpty(s.Profile) && !Same(d.HdrProfile, s.Profile)) problems.Add(s.Name + " profile is " + (d.HdrProfile ?? "none"));
@@ -395,6 +440,7 @@ namespace DisplaySwap
 
             if (problems.Count > 0) throw new DisplayException(string.Join("; ", problems));
             log("Done: '" + p.Name + "' is active.");
+            return layoutUpdated;
         }
     }
 }

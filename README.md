@@ -44,6 +44,7 @@ colour profile for every screen and changes the sound output, which Windows norm
 
 - **Display profiles.** Save the screens Windows is showing (which screens are on, resolution, refresh
   rate, position, main screen) and switch back to that setup later.
+- **Refresh rate per screen.** Pick the refresh rate each screen runs at, from the rates it supports.
 - **HDR per screen.** Turn HDR on or off for each screen as part of the profile.
 - **HDR colour profile per screen.** Pick which Windows HDR Calibration profile each screen uses. It is
   set on the right monitor even when screens take turns on the same graphics card output.
@@ -71,7 +72,7 @@ colour profile for every screen and changes the sound output, which Windows norm
    *More info → Run anyway*.
 3. Set your screens up in Windows (Win+P or *Settings → Display*), with HDR the way you want it, then
    click **Save current setup**. Repeat for each setup.
-4. For each profile, pick the HDR mode, HDR colour profile and sound output you want.
+4. For each profile, pick the refresh rate, HDR mode, HDR colour profile and sound output you want.
 
 Requirements: Windows 10 (version 2004 or later) or Windows 11, 64-bit. The .NET Framework 4.8
 it needs is already part of Windows.

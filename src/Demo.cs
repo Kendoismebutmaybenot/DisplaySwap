@@ -18,9 +18,9 @@ namespace DisplaySwap
         public static List<LiveDisplay> Displays()
         {
             return new List<LiveDisplay> {
-                new LiveDisplay { Name = "Desk Monitor", DevicePath = DeskPath, Active = true, Available = true, Width = 2560, Height = 1440, X = 0, Y = 0, Hz = 240,
+                new LiveDisplay { Name = "Desk Monitor", DevicePath = DeskPath, Active = true, Available = true, Width = 2560, Height = 1440, X = 0, Y = 0, Hz = 240, Rate = 240,
                                   HdrSupported = true, HdrOn = true, HdrProfile = "Desk Monitor HDR.icc", TargetId = 1 },
-                new LiveDisplay { Name = "Side Monitor", DevicePath = SidePath, Active = true, Available = true, Width = 1920, Height = 1080, X = 2560, Y = 180, Hz = 144,
+                new LiveDisplay { Name = "Side Monitor", DevicePath = SidePath, Active = true, Available = true, Width = 1920, Height = 1080, X = 2560, Y = 180, Hz = 144, Rate = 144,
                                   HdrSupported = false, TargetId = 2 },
                 new LiveDisplay { Name = "Living Room TV", DevicePath = TvPath, Active = false, Available = true, HdrSupported = true,
                                   HdrProfile = "Living Room TV HDR.icc", TargetId = 3 },
@@ -35,6 +35,13 @@ namespace DisplaySwap
                 new AudioDevice { Id = "{demo}.{3}", Name = "Desk Monitor (NVIDIA High Definition Audio)", Active = true, Present = true },
                 new AudioDevice { Id = "{demo}.{4}", Name = "Living Room TV (NVIDIA High Definition Audio)", Active = false, Present = false },
             };
+        }
+
+        public static List<int> Rates(int width)
+        {
+            return width >= 3840 ? new List<int> { 24, 50, 60, 100, 120 }
+                 : width >= 2560 ? new List<int> { 60, 120, 144, 165, 240 }
+                 : new List<int> { 60, 75, 100, 120, 144 };
         }
 
         public static List<string> ColourProfiles()
