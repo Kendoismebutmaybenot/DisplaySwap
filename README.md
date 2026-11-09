@@ -116,7 +116,12 @@ The TV is only turned off if it was being used as a screen before the switch.
 
 **Network use:** DisplaySwap only scans your network when you click *Find & pair TV*. It never scans in
 the background or at startup. When the TV power options are on, a switch talks only to the one paired TV
-at its saved address (plus a Wake-on-LAN packet when it has to turn the TV on).
+at its saved address (plus a Wake-on-LAN packet when it has to turn the TV on). If the TV doesn't answer,
+DisplaySwap pings your router once to tell "the TV is off" apart from "this PC can't reach your home
+network" (for example a VPN blocking it), so it doesn't wait for a TV it can't reach.
+
+The only time DisplaySwap goes on the internet is when you click *Check for updates* in Settings: it asks
+GitHub for the latest version, and downloads it only if you then click *Install*. It never checks on its own.
 
 ## Command line
 
