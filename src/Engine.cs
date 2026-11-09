@@ -237,9 +237,16 @@ namespace DisplaySwap
             }
         }
 
+        /// <summary>Refresh rates an active screen offers at its current resolution. Windows lists them per
+        /// graphics-card output, and screens can take turns on one output, so right after a switch the list can
+        /// still be the previous screen's. It is only trusted when it has the rate this screen runs at now
+        /// (which Windows reports per screen); otherwise the result is empty.</summary>
         public static List<int> SafeRates(LiveDisplay d)
         {
-            try { return Displays.RefreshRates(d.GdiName, d.Width, d.Height); } catch { return new List<int>(); }
+            List<int> rates;
+            try { rates = Displays.RefreshRates(d.GdiName, d.Width, d.Height); } catch { return new List<int>(); }
+            if (d.Hz > 0 && !rates.Any(r => Math.Abs(r - d.Hz) <= 1)) return new List<int>();
+            return rates;
         }
 
         /// <summary>True when an active screen runs at the refresh rate the profile asks for (or the profile doesn't say).</summary>

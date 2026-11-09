@@ -22,14 +22,14 @@ using SD = System.Drawing;
 [assembly: AssemblyTitle("DisplaySwap")]
 [assembly: AssemblyProduct("DisplaySwap")]
 [assembly: AssemblyDescription("Switch between saved monitor/TV setups, with HDR, colour profiles and sound")]
-[assembly: AssemblyVersion("1.3.3.0")]
-[assembly: AssemblyFileVersion("1.3.3.0")]
+[assembly: AssemblyVersion("1.3.4.0")]
+[assembly: AssemblyFileVersion("1.3.4.0")]
 
 namespace DisplaySwap
 {
     public static class Program
     {
-        public const string Version = "1.3.3";
+        public const string Version = "1.3.4";
 
         /// <summary>Remember where DisplaySwap.exe lives (HKCU\Software\DisplaySwap\ExePath) so the Playnite
         /// extension can find it wherever the user unzipped it.</summary>
@@ -50,21 +50,34 @@ namespace DisplaySwap
         {
             if (args.Length > 0) AttachConsole(-1);
             if (!Demo.On) RegisterLocation();
-            string apply = null; bool tray = false, remember = false;
+            string apply = null; bool tray = false, remember = false; int updatedFrom = 0;
             for (int i = 0; i < args.Length; i++)
             {
                 var a = args[i].ToLowerInvariant();
                 if ((a == "--apply" || a == "-a" || a == "/apply") && i + 1 < args.Length) apply = args[++i];
                 else if (a == "--tray") tray = true;
+                else if (a == "--after-update" && i + 1 < args.Length) int.TryParse(args[++i], out updatedFrom);
                 else if (a == "--remember") remember = true;
                 else if (a == "--restore") return RestoreFromCommandLine();
                 else if (a == "--make-icon" && i + 1 < args.Length) { IconMaker.WriteIco(args[++i]); return 0; }
                 else if (a == "--version") { Console.WriteLine("DisplaySwap " + Version); return 0; }
+                else if (a == "--check-update")
+                {
+                    try { var u = Updater.Check(); Console.WriteLine(Updater.IsNewer(u) ? u.Tag + " is available: " + u.PageUrl : "Up to date (latest is " + u.Tag + ")."); return 0; }
+                    catch (Exception e) { Console.Error.WriteLine("Couldn't check: " + Updater.Explain(e)); return 1; }
+                }
                 else if (a == "--list") { foreach (var p in Store.Load().Profiles) Console.WriteLine(p.Name); return 0; }
                 else if (a == "--status") { foreach (var d in Displays.Live()) Console.WriteLine("{0} active={1} {2}x{3}@{4:F2} hdr={5} profile={6}", d.Name, d.Active, d.Width, d.Height, d.Hz, d.HdrOn, d.HdrProfile); return 0; }
             }
 
             if (apply != null) return ApplyFromCommandLine(apply, remember);
+
+            // Started by an update: let the old version close first (it still holds the single-instance lock).
+            if (updatedFrom > 0)
+            {
+                try { Process.GetProcessById(updatedFrom).WaitForExit(15000); } catch { }
+                Updater.CleanUp();
+            }
 
             bool first;
             var mutex = new Mutex(true, Demo.On ? MutexName + ".demo" : MutexName, out first);
@@ -76,7 +89,8 @@ namespace DisplaySwap
             var showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
 
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            var ui = new MainUi(Store.Load(), tray);
+            var ui = new MainUi(Store.Load(), tray && updatedFrom == 0);
+            if (updatedFrom > 0) ui.Dispatcher.BeginInvoke(new Action(ui.ShowUpdated));
             var t = new Thread(() => {
                 while (true) { showEvent.WaitOne(); ui.Dispatcher.BeginInvoke(new Action(ui.ShowFromTray)); }
             }) { IsBackground = true };
@@ -239,6 +253,8 @@ namespace DisplaySwap
             };
             F<Button>("LogBtn").Click += (s, e) => { if (File.Exists(Store.LogPath)) Process.Start("notepad.exe", "\"" + Store.LogPath + "\""); };
             F<Button>("OpenFolderBtn").Click += (s, e) => { Directory.CreateDirectory(Store.Dir); Process.Start("explorer.exe", "\"" + Store.Dir + "\""); };
+            updateCheckBtn = F<Button>("UpdateCheckBtn"); updateCheckText = F<TextBlock>("UpdateCheckText"); updateStatus = F<TextBlock>("UpdateStatus");
+            updateCheckBtn.Click += (s, e) => CheckOrInstallUpdate();
             optStartup.Click += (s, e) => { if (!suppressEvents) Startup.Enabled = optStartup.IsChecked == true; };
             optTray.Click += (s, e) => { if (!suppressEvents) { store.Settings.CloseToTray = optTray.IsChecked == true; Save(); } };
             optRefresh.Click += (s, e) => { if (!suppressEvents) { store.Settings.RefreshHdr = optRefresh.IsChecked == true; Save(); } };
@@ -487,7 +503,7 @@ namespace DisplaySwap
                     var d = live.FirstOrDefault(x => x.Active && Switcher.Same(x.DevicePath, s.DevicePath));
                     if (d == null) continue;
                     // Remember which refresh rates the screen offers at this profile's resolution (for the picker
-                    // while the screen is off).
+                    // while the screen is off). SafeRates leaves out a list that may be another screen's.
                     if (d.Width == s.Width && d.Height == s.Height)
                     {
                         var rates = Switcher.SafeRates(d);
@@ -743,9 +759,11 @@ namespace DisplaySwap
             int current = ShownRate(s, ld);
             if (current > 0 && !rates.Contains(current) && rates.Count > 0 && s.RefreshHz <= 0)
             {
-                // Older profile: snap its exact rate to one Windows lists (it writes 59.94 as 59).
+                // Older profile: snap its exact rate to one Windows lists (it writes 59.94 as 59), but only to a
+                // close one: a list without it may be out of date, and then the profile's own rate stays.
                 int fl = (int)Math.Floor(s.Hz);
-                current = rates.Contains(fl) ? fl : rates.OrderBy(r => Math.Abs(r - s.Hz)).First();
+                int near = rates.Contains(fl) ? fl : rates.OrderBy(r => Math.Abs(r - s.Hz)).First();
+                if (Math.Abs(near - s.Hz) <= 1) current = near;
             }
             if (current > 0 && !rates.Contains(current)) { rates.Add(current); rates.Sort(); }
             foreach (var r in rates) box.Items.Add(new ComboBoxItem { Content = r + " Hz", Tag = r });
@@ -1158,6 +1176,89 @@ namespace DisplaySwap
             if (win.WindowState == WindowState.Minimized) win.WindowState = WindowState.Normal;
             win.Activate(); win.Topmost = true; win.Topmost = false;
             RefreshLive();
+        }
+
+        // ---------------- updates ----------------
+        Button updateCheckBtn; TextBlock updateCheckText, updateStatus;
+        UpdateInfo pendingUpdate; bool updating;
+
+        void ShowUpdateStatus(string text, string link)
+        {
+            updateStatus.Inlines.Clear();
+            updateStatus.Inlines.Add(new System.Windows.Documents.Run(text));
+            if (link != null)
+            {
+                var h = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run("What's new"));
+                h.Foreground = (Brush)win.FindResource("Accent");
+                h.Click += (s, e) => { try { Process.Start(link); } catch { } };
+                updateStatus.Inlines.Add(new System.Windows.Documents.Run(" "));
+                updateStatus.Inlines.Add(h);
+            }
+            updateStatus.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>First click asks GitHub for the latest version; if it is newer the button turns into
+        /// "Install vX", and that click downloads it, swaps the exe and restarts DisplaySwap.</summary>
+        void CheckOrInstallUpdate()
+        {
+            if (updating) return;
+            if (pendingUpdate != null) { InstallUpdate(pendingUpdate); return; }
+            updating = true; updateCheckBtn.IsEnabled = false;
+            ShowUpdateStatus("Checking GitHub...", null);
+            ThreadPool.QueueUserWorkItem(_ => {
+                UpdateInfo u = null; Exception err = null;
+                try { u = Updater.Check(); } catch (Exception e) { err = e; }
+                win.Dispatcher.BeginInvoke(new Action(() => {
+                    updating = false; updateCheckBtn.IsEnabled = true;
+                    if (err != null) { ShowUpdateStatus("Couldn't check for updates: " + Updater.Explain(err), null); return; }
+                    if (!Updater.IsNewer(u)) { ShowUpdateStatus("You have the latest version (v" + Program.Version + ").", null); return; }
+                    pendingUpdate = u;
+                    updateCheckText.Text = "Install " + u.Tag;
+                    ShowUpdateStatus(u.Tag + " is available. DisplaySwap restarts to finish; your profiles and settings are kept.", u.PageUrl);
+                }));
+            });
+        }
+
+        void InstallUpdate(UpdateInfo u)
+        {
+            if (busy) { ShowUpdateStatus("Wait for the switch to finish, then try again.", null); return; }
+            if (!Updater.CanInstallHere)
+            {
+                ShowUpdateStatus("DisplaySwap's folder can't be written to, so it can't update itself. Download " + u.Tag + " from GitHub instead.", u.PageUrl);
+                return;
+            }
+            updating = true; updateCheckBtn.IsEnabled = false;
+            Action<string> progress = msg => win.Dispatcher.BeginInvoke(new Action(() => ShowUpdateStatus(msg, null)));
+            ThreadPool.QueueUserWorkItem(_ => {
+                string exe = null; Exception err = null;
+                try { exe = Updater.Install(u, progress); } catch (Exception e) { err = e; }
+                win.Dispatcher.BeginInvoke(new Action(() => {
+                    if (err != null)
+                    {
+                        updating = false; updateCheckBtn.IsEnabled = true;
+                        Log.Write("Update to " + u.Tag + " failed: " + err.Message);
+                        ShowUpdateStatus("Update failed: " + Updater.Explain(err) + " Nothing was changed.", u.PageUrl);
+                        return;
+                    }
+                    Log.Write("Updated to " + u.Tag + ", restarting");
+                    try { Process.Start(exe, "--after-update " + Process.GetCurrentProcess().Id); }
+                    catch (Exception e)
+                    {
+                        updating = false;
+                        ShowUpdateStatus(u.Tag + " is installed but couldn't start (" + e.Message + "). Close DisplaySwap and open it again.", null);
+                        return;
+                    }
+                    reallyExit = true;
+                    win.Close();
+                }));
+            });
+        }
+
+        /// <summary>Shown by the new version after an update restarted it.</summary>
+        public void ShowUpdated()
+        {
+            ShowFromTray();
+            SetStatus("Updated to v" + Program.Version + ".", true);
         }
 
         void ExitApp()

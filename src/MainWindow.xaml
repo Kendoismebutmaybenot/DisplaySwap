@@ -226,9 +226,15 @@
             <CheckBox x:Name="OptTvOn" Content="Turn the TV on when a profile uses it"/>
             <CheckBox x:Name="OptTvOff" Content="Turn the TV off when switching away"/>
             <Border Height="1" Background="#343A46" Margin="0,8,0,4"/>
-            <Button x:Name="OpenFolderBtn" Style="{StaticResource Btn}" HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,5">
-              <TextBlock Text="Open profiles folder" FontSize="12"/>
-            </Button>
+            <WrapPanel Margin="0,8,0,0">
+              <Button x:Name="UpdateCheckBtn" Style="{StaticResource Btn}" Padding="10,5" Margin="0,0,8,0" ToolTip="Look for a newer version on GitHub and install it">
+                <TextBlock x:Name="UpdateCheckText" Text="Check for updates" FontSize="12"/>
+              </Button>
+              <Button x:Name="OpenFolderBtn" Style="{StaticResource Btn}" Padding="10,5">
+                <TextBlock Text="Open profiles folder" FontSize="12"/>
+              </Button>
+            </WrapPanel>
+            <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="{StaticResource Sub}" FontSize="11.5" Margin="0,6,0,0" Visibility="Collapsed"/>
           </StackPanel>
         </Border>
       </Popup>
