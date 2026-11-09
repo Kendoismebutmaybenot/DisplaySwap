@@ -30,7 +30,7 @@ colour profile for every screen and changes the sound output, which Windows norm
     <td width="50%"><img src="docs/images/desk-and-tv.png" alt="Desk and TV profile"><br><sub><b>Desk + TV:</b> each screen gets its own HDR settings</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/settings.png" alt="Settings"><br><sub><b>Settings:</b> start with Windows, safety net and TV power</sub></td>
+    <td width="50%"><img src="docs/images/settings.png" alt="Settings"><br><sub><b>Settings:</b> start with Windows, safety net, TV power and updates</sub></td>
     <td width="50%"><img src="docs/images/sound.png" alt="Sound output"><br><sub><b>Sound output</b> per profile, including TV audio that only exists while the TV is on</sub></td>
   </tr>
 </table>
