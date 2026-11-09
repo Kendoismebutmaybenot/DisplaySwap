@@ -5,12 +5,15 @@
 //    user clicks "Find & pair TV" in Settings, never in the background or at startup.
 //  * During a switch, and only if the user turned on the TV power options, DisplaySwap talks to the ONE
 //    paired TV at its saved address, plus a Wake-on-LAN broadcast when it has to switch the TV on.
+//  * If the TV doesn't answer, one ping (or a quick connect) to the router on the TV's network tells apart
+//    "TV is off" from "this PC can't reach its home network at all" (e.g. a VPN blocking it).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -71,6 +74,44 @@ namespace DisplaySwap
                 try { var p = IPAddress.Parse(ip).GetAddressBytes(); p[3] = 255; targets.Add(new IPEndPoint(new IPAddress(p), 9)); } catch { }
                 for (int k = 0; k < 3; k++) foreach (var t in targets) u.Send(bytes, bytes.Length, t);
             }
+        }
+
+        /// <summary>True when this PC can't reach the TV's network at all right now: no network adapter is on
+        /// the TV's subnet, or the router on it doesn't answer. A VPN that blocks the local network (a kill
+        /// switch, "block untunneled traffic") looks like this. Then waiting for the TV to answer is pointless.</summary>
+        public static bool LanBlocked(string tvIp)
+        {
+            IPAddress tv;
+            if (!IPAddress.TryParse(tvIp ?? "", out tv) || tv.AddressFamily != AddressFamily.InterNetwork) return false;
+            var t = tv.GetAddressBytes();
+            var routers = new List<IPAddress>();
+            bool onSubnet = false;
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                IPInterfaceProperties props;
+                try { props = ni.GetIPProperties(); } catch { continue; }
+                foreach (var ua in props.UnicastAddresses)
+                {
+                    if (ua.Address.AddressFamily != AddressFamily.InterNetwork || ua.IPv4Mask == null) continue;
+                    var a = ua.Address.GetAddressBytes(); var m = ua.IPv4Mask.GetAddressBytes();
+                    if (m.All(b => b == 255)) continue;   // single-address tunnel adapters
+                    bool same = true;
+                    for (int i = 0; i < 4; i++) if ((a[i] & m[i]) != (t[i] & m[i])) same = false;
+                    if (!same) continue;
+                    onSubnet = true;
+                    foreach (var g in props.GatewayAddresses)
+                        if (g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)) routers.Add(g.Address);
+                }
+            }
+            if (!onSubnet) return true;          // not on the TV's network (VPN routing, or away from home)
+            if (routers.Count == 0) return false; // can't tell
+            foreach (var r in routers.Distinct())
+            {
+                try { using (var ping = new Ping()) if (ping.Send(r, 600).Status == IPStatus.Success) return false; } catch { }
+                if (Reachable(r.ToString(), new[] { 80, 443, 53 }, 300)) return false;   // routers that ignore pings
+            }
+            return true;
         }
 
         public static bool Reachable(string ip, int[] ports, int timeoutMs)
@@ -274,21 +315,33 @@ namespace DisplaySwap
             return drivers.FirstOrDefault(d => d.Brand == b) ?? drivers[0];
         }
 
-        /// <summary>Make sure the paired TV is on; waits until it says so (custom commands can't report, so they don't wait).</summary>
-        public static void EnsureOn(Settings s, Action<string> log, int timeoutMs)
+        /// <summary>Make sure the paired TV is on; waits until it says so (custom commands can't report, so they don't wait).
+        /// windowsSeesTv: whether Windows sees the TV on its cable; the TV appearing there also counts as on.
+        /// If the PC can't reach its home network at all (e.g. a VPN blocks it), the wake signal is sent once
+        /// and it doesn't wait for an answer that can't come.</summary>
+        public static void EnsureOn(Settings s, Action<string> log, int timeoutMs, Func<bool> windowsSeesTv)
         {
             var d = For(s.TvBrand);
             var state = d.PowerState(s);
             if (state == "on") return;
+            bool custom = d is CustomDriver;
+            bool blocked = !custom && state == "off" && TvNet.LanBlocked(s.TvIp);
             log("Turning the TV on" + (state == "screen-off" ? " (screen was off)" : ""));
             d.TurnOn(s, state);
-            if (d is CustomDriver) return;
+            if (custom) return;
+            if (blocked)
+            {
+                log("Can't reach your home network (a VPN may be blocking it), so not waiting for the TV to answer");
+                return;
+            }
+            bool seenAtStart = windowsSeesTv != null && windowsSeesTv();
             var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             int n = 0;
             while (DateTime.UtcNow < until)
             {
                 Thread.Sleep(1000);
                 if (d.PowerState(s) == "on") { log("TV is on"); return; }
+                if (!seenAtStart && windowsSeesTv != null && windowsSeesTv()) { log("Windows sees the TV"); return; }
                 if (++n % 4 == 0) d.TurnOn(s, "off");   // repeat in case a wake packet was missed
             }
             throw new DisplayException("The TV did not turn on" + (d.Brand == "lg" || d.Brand == "samsung" ? " (check that the TV allows turning on via Wi-Fi/LAN)" : ""));
@@ -298,7 +351,11 @@ namespace DisplaySwap
         {
             var d = For(s.TvBrand);
             if (d is CustomDriver) { d.TurnOff(s); return; }
-            if (d.PowerState(s) == "off") return;   // already off; Samsung's power key would toggle it back on
+            if (d.PowerState(s) == "off")   // already off (Samsung's power key would toggle it back on), or unreachable
+            {
+                if (TvNet.LanBlocked(s.TvIp)) throw new DisplayException("Can't reach your home network (a VPN may be blocking it), so the TV wasn't turned off");
+                return;
+            }
             d.TurnOff(s);
         }
     }

@@ -315,7 +315,7 @@ namespace DisplaySwap
             if (profileUsesTv && settings.TvTurnOn)
             {
                 try {
-                    TvPower.EnsureOn(settings, log, 25000);
+                    TvPower.EnsureOn(settings, log, 25000, () => Displays.WaitForAvailable(settings.TvDevicePath, 0));
                     if (!Displays.WaitForAvailable(settings.TvDevicePath, 15000)) log("Warning: Windows doesn't see the TV yet.");
                     live = Displays.Live();
                 } catch (Exception e) { log("TV power: " + e.Message); }
